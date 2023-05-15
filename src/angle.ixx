@@ -2,11 +2,11 @@ module;
 #include <numbers>
 #include <SFML/System/Vector2.hpp>
 #include <utility>
-import math_utils;
 
 constexpr float pi = std::numbers::pi_v<float>;
 
 export module angle;
+import math_utils;
 
 export struct angle {
 	constexpr static angle deg(const float deg) {
