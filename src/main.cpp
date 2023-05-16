@@ -373,6 +373,45 @@ int main(int argc, char* argv[]) {
 				spr.move(dt * vel);
 			});
 		}
+		
+		// clamp player in bounds by bouncing off walls,
+		// that is recalculating their position, their velocity, and their facing
+		// todo: this should only occur whilst boosting
+		for (const auto& [e, hit, spr, vel, facing, _] : ecs.view<hitbox, sf::Sprite, velocity, facing, player>().each()) {
+			auto pos = spr.getPosition();
+			auto new_vel = vel;
+			auto new_facing	= facing;
+			// if oob, bounce off wall
+			if (auto diff = (-target_size.x / 2.f) - (pos.x - hit.radius);  diff > 0.f) {
+				pos.x = (-target_size.x / 2.f) + diff;
+				new_vel.x = -vel.x;
+				new_facing.angle = angle::deg(180.f) - new_facing.angle;
+			}
+			else if (auto diff = (target_size.x / 2.f) - (pos.x + hit.radius); diff < 0.f) {
+				pos.x = (target_size.x / 2.f) + diff;
+				new_vel.x = -vel.x;
+				new_facing.angle = angle::deg(180.f) - new_facing.angle;
+			}
+			else if (auto diff = (-target_size.y / 2.f) - (pos.y - hit.radius); diff > 0.f) {
+				pos.y =	(-target_size.y / 2.f) + diff;
+				new_vel.y = -vel.y;
+				new_facing.angle = -new_facing.angle;
+			}
+			else if (auto diff = (target_size.y / 2.f) - (pos.y + hit.radius); diff < 0.f) {
+				pos.y = (target_size.y / 2.f) + diff;
+				new_vel.y = -vel.y;
+				new_facing.angle = -new_facing.angle;
+			}
+			else {
+				// if not oob, don't patch components
+				continue;
+			}
+			mut_ecs.patch<sf::Sprite>(e, [&](sf::Sprite& spr) {
+				spr.setPosition(pos);
+			});
+			mut_ecs.replace<velocity>(e, new_vel);
+			mut_ecs.replace<::facing>(e, new_facing);
+		}
 
 		// erase any danmaku that are off-screen
 		for (const auto& [e, spr] : ecs.view<danmaku, sf::Sprite>().each()) {
