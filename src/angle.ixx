@@ -3,10 +3,10 @@ module;
 #include <SFML/System/Vector2.hpp>
 #include <utility>
 
-constexpr float pi = std::numbers::pi_v<float>;
-
 export module angle;
 import math_utils;
+
+constexpr float pi = std::numbers::pi_v<float>;
 
 export struct angle {
 	constexpr static angle deg(const float deg) {
@@ -45,9 +45,13 @@ export struct angle {
 	}
 
 	// https://stackoverflow.com/a/7869457
-	angle diff(const angle to) const {
+	constexpr angle diff(const angle to) const {
 		const float diff{ to.radians - radians };
 		return angle::rad(fmod_pos(diff + pi, pi * 2.f) - pi);
+	}
+
+	constexpr angle abs() const {
+		return angle::rad(std::abs(radians));
 	}
 
 	[[nodiscard]]

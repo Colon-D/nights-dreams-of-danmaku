@@ -1,9 +1,11 @@
+#include <SFML/Audio.hpp>
 #include <SFML/Graphics.hpp>
 #include <SFML/Window.hpp>
-#include <SFML/Audio.hpp>
 #include <entt/entt.hpp>
 #include <filesystem>
 #include <format>
+#include <imgui-SFML.h>
+#include <imgui.h>
 #include <iostream>
 #include <memory>
 #include <random>
@@ -30,7 +32,12 @@ struct gillwing {
 	bool heading_right{ true };
 };
 
+// erased offscreen
 struct danmaku {
+};
+
+// hurts the player
+struct painful {
 };
 
 struct rotate_towards_velocity {
@@ -79,6 +86,7 @@ entt::entity create_danmaku(entt::registry& ecs, sf::Shader& shdr, sf::Sprite sp
 	ecs.emplace<sf::Shader*>(e, &shdr);
 
 	ecs.emplace<hitbox>(e, 5.f);
+	ecs.emplace<painful>(e);
 
 	return e;
 }
@@ -165,6 +173,9 @@ int main(int argc, char* argv[]) {
 	const sf::Vector2f target_size{ 640.f, 480.f };
 	resize_view(window, target_size);
 
+	ImGui::SFML::Init(window);
+	ImGui::GetIO().IniFilename = nullptr;
+
 	entt::registry mut_ecs{};
 	const entt::registry& ecs = mut_ecs;
 
@@ -186,13 +197,19 @@ int main(int argc, char* argv[]) {
 	mut_ecs.emplace<velocity>(gillwing_e);
 	mut_ecs.emplace<rotate_towards_velocity>(gillwing_e, true);
 
+	mut_ecs.emplace<hitbox>(gillwing_e, 52.f);
+	mut_ecs.emplace<painful>(gillwing_e);
+
 	sf::Clock clock{};
 
 	float elapsed{ 0.f };
 
+	bool debug_visible_hitboxes{ false };
+
 	while (window.isOpen()) {
 		sf::Event event{};
 		while (window.pollEvent(event)) {
+			ImGui::SFML::ProcessEvent(window, event);
 			switch (event.type) {
 			case sf::Event::Closed:
 				window.close();
@@ -203,9 +220,18 @@ int main(int argc, char* argv[]) {
 			}
 		}
 
-		const auto dt = clock.restart().asSeconds();
+		const auto dt_time = clock.restart();
+		ImGui::SFML::Update(window, dt_time);
+		const auto dt = dt_time.asSeconds();
 		elapsed += dt;
 		danmaku_shdr.setUniform("time_elapsed", elapsed);
+
+		if (ImGui::Begin("debug")) {
+			ImGui::Checkbox("visible hitboxes", &debug_visible_hitboxes);
+			ImGui::End();
+		}
+
+		ImGui::EndFrame();
 
 		// input
 
@@ -374,43 +400,97 @@ int main(int argc, char* argv[]) {
 			});
 		}
 		
-		// clamp player in bounds by bouncing off walls,
-		// that is recalculating their position, their velocity, and their facing
-		// todo: this should only occur whilst boosting
-		for (const auto& [e, hit, spr, vel, facing, _] : ecs.view<hitbox, sf::Sprite, velocity, facing, player>().each()) {
+		// clamp player in bounds by sliding/bouncing off walls,
+		// recalculating their position, and often their velocity and facing
+		for (
+			const auto& [e, hit, spr, vel, facing, player] :
+			ecs.view<hitbox, sf::Sprite, velocity, facing, player>().each()
+		) {
 			auto pos = spr.getPosition();
+
+			const auto boost = player.input.boost();
+			const auto movement = player.input.movement() != sf::Vector2f{};
 			auto new_vel = vel;
 			auto new_facing	= facing;
-			// if oob, bounce off wall
-			if (auto diff = (-target_size.x / 2.f) - (pos.x - hit.radius);  diff > 0.f) {
-				pos.x = (-target_size.x / 2.f) + diff;
-				new_vel.x = -vel.x;
-				new_facing.angle = angle::deg(180.f) - new_facing.angle;
+			const auto rot_vel = angle::deg(800.f) * dt;
+			auto rotate_towards_closest_tangent = [](
+				const angle& angle,
+				const ::angle& tangent,
+				const ::angle& rot_vel
+			) {
+				const auto tangent2 = tangent + angle::deg(180.f);
+				const auto closest_tangent =
+					angle.diff(tangent).abs() < angle.diff(tangent2).abs()
+					? tangent
+					: tangent2;
+				return angle.rotate_towards(closest_tangent, rot_vel);
+			};
+			bool oob{ false };
+			// if oob, slide/bounce off wall
+			if (pos.x - hit.radius < -target_size.x / 2.f) {
+				pos.x = -target_size.x / 2.f + hit.radius;
+				if (boost) {
+					new_vel.x = -vel.x;
+					new_facing.angle = angle::deg(180.f) - new_facing.angle;
+				}
+				else {
+					new_facing.angle = rotate_towards_closest_tangent(
+						facing.angle, angle::deg(90.f), rot_vel
+					);
+				}
+				oob	= true;
 			}
-			else if (auto diff = (target_size.x / 2.f) - (pos.x + hit.radius); diff < 0.f) {
-				pos.x = (target_size.x / 2.f) + diff;
-				new_vel.x = -vel.x;
-				new_facing.angle = angle::deg(180.f) - new_facing.angle;
+			else if (pos.x + hit.radius > target_size.x / 2.f) {
+				pos.x = target_size.x / 2.f - hit.radius;
+				if (boost) {
+					new_vel.x = -vel.x;
+					new_facing.angle = angle::deg(180.f) - new_facing.angle;
+				}
+				else {
+					new_facing.angle = rotate_towards_closest_tangent(
+						facing.angle, angle::deg(90.f), rot_vel
+					);
+				}
+				oob	= true;
 			}
-			else if (auto diff = (-target_size.y / 2.f) - (pos.y - hit.radius); diff > 0.f) {
-				pos.y =	(-target_size.y / 2.f) + diff;
-				new_vel.y = -vel.y;
-				new_facing.angle = -new_facing.angle;
+			if (pos.y - hit.radius < -target_size.y / 2.f) {
+				pos.y =	-target_size.y / 2.f + hit.radius;
+				if (boost) {
+					new_vel.y = -vel.y;
+					new_facing.angle = -new_facing.angle;
+				}
+				else {
+					new_facing.angle = rotate_towards_closest_tangent(
+						facing.angle, angle::deg(0.f), rot_vel
+					);
+				}
+				oob	= true;
 			}
-			else if (auto diff = (target_size.y / 2.f) - (pos.y + hit.radius); diff < 0.f) {
-				pos.y = (target_size.y / 2.f) + diff;
-				new_vel.y = -vel.y;
-				new_facing.angle = -new_facing.angle;
+			else if (pos.y + hit.radius > target_size.y / 2.f) {
+				pos.y = target_size.y / 2.f - hit.radius;
+				if (boost) {
+					new_vel.y = -vel.y;
+					new_facing.angle = -new_facing.angle;
+				}
+				else {
+					new_facing.angle = rotate_towards_closest_tangent(
+						facing.angle, angle::deg(0.f), rot_vel
+					);
+				}
+				oob	= true;
 			}
-			else {
-				// if not oob, don't patch components
+			// if not oob, don't update components
+			if (!oob) {
 				continue;
 			}
 			mut_ecs.patch<sf::Sprite>(e, [&](sf::Sprite& spr) {
 				spr.setPosition(pos);
 			});
-			mut_ecs.replace<velocity>(e, new_vel);
-			mut_ecs.replace<::facing>(e, new_facing);
+			// movement flag needed else nights will lie flat on the ground
+			if (boost || movement) {
+				mut_ecs.replace<velocity>(e, new_vel);
+				mut_ecs.replace<::facing>(e, new_facing);
+			}
 		}
 
 		// erase any danmaku that are off-screen
@@ -430,8 +510,8 @@ int main(int argc, char* argv[]) {
 			}
 		}
 
-		// check for collisions between danmaku and players
-		for (const auto& [d_e, d_spr, d_hit] : ecs.view<danmaku, sf::Sprite, hitbox>().each()) {
+		// check for collisions between painful hitboxes and players
+		for (const auto& [d_e, d_spr, d_hit] : ecs.view<painful, sf::Sprite, hitbox>().each()) {
 			for (const auto& [p_e, _, p_spr, p_hit] : ecs.view<player, sf::Sprite, hitbox>().each()) {
 				// compare radius of hitboxes alongside position from sprite
 				const auto& d_pos = d_spr.getPosition();
@@ -509,9 +589,26 @@ int main(int argc, char* argv[]) {
 				window.draw(spr);
 			}
 		}
-		window.display();
 
+		// render hitboxes
+		if (debug_visible_hitboxes) {
+			for(const auto &[e, spr, hit] : ecs.view<sf::Sprite, hitbox>().each()) {
+				sf::CircleShape circle{ hit.radius };
+				circle.setOrigin({ hit.radius, hit.radius });
+				circle.setPosition(spr.getPosition());
+				circle.setFillColor(
+					ecs.any_of<painful>(e) ? sf::Color::Red : sf::Color::Cyan
+				);
+				window.draw(circle);
+			}
+		}
+
+		ImGui::SFML::Render(window);
+
+		window.display();
 	}
+
+	ImGui::SFML::Shutdown();
 
 	return EXIT_SUCCESS;
 }

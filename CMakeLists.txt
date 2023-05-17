@@ -30,4 +30,5 @@ target_link_libraries("${PROJECT_NAME}" PUBLIC
 	"sfml-window"
 	"sfml-system"
 	"sfml-audio"
+	"ImGui-SFML::ImGui-SFML"
 )
