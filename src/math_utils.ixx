@@ -1,4 +1,5 @@
 module;
+#include "assert_with_message.h"
 #include <SFML/System/Vector2.hpp>
 #include <cmath>
 
@@ -13,11 +14,13 @@ export float mag(const sf::Vector2f& vec) {
 	return std::sqrt(vec.x * vec.x + vec.y * vec.y);
 }
 
+/// asserts that division by 0 does not happen, on release returns {}
 export [[nodiscard]]
 sf::Vector2f normalized(const sf::Vector2f& vec) {
 	const float magnitude{ mag(vec) };
 	// stop division by 0
 	if (magnitude == 0.f) {
+		assert_with_message(false, "normalized() called on vector with magnitude 0");
 		return {};
 	}
 	return vec / magnitude;

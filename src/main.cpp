@@ -265,7 +265,6 @@ int main(int argc, char* argv[]) {
 		}
 
 		// - change speed with input
-
 		for (const auto& [e, _, facing, player] : ecs.view<velocity, facing, player>().each()) {
 			const auto movement_input = player.input.movement();
 			const bool apply_movement_input{ movement_input != sf::Vector2f{} };
@@ -294,7 +293,9 @@ int main(int argc, char* argv[]) {
 				else if (curr_spd > target_spd) {
 					spd = std::max(curr_spd - acceleration * dt, target_spd);
 				}
-				vel = spd * normalized(vel);
+				vel = spd * (curr_spd
+					? normalized(vel)
+					: sf::Vector2f{ 0.f, -1.f });
 
 				// set the velocity to be in direction that player is facing
 				if (apply_movement_input || player.input.boost()) {
