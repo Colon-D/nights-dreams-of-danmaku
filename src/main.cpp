@@ -12,6 +12,7 @@
 import angle;
 import input;
 import math_utils;
+import audio;
 
 struct velocity : sf::Vector2f {
 	velocity(const sf::Vector2f& vel = {}) : sf::Vector2f{ vel } {}
@@ -160,12 +161,7 @@ int main(int argc, char* argv[]) {
 	sf::Shader disintegrate_shdr{};
 	disintegrate_shdr.loadFromFile("res/shaders/disintegrate.frag", sf::Shader::Type::Fragment);
 
-	sf::SoundBuffer scream_sfx{};
-	scream_sfx.loadFromFile("res/scream.ogg");
-	// todo: sound player
-	sf::Sound sound{};
-	sound.setBuffer(scream_sfx);
-	sound.setVolume(4.f);
+	audio audio{};
 
 	std::default_random_engine rng{ std::random_device{}() };
 
@@ -228,10 +224,16 @@ int main(int argc, char* argv[]) {
 
 		if (ImGui::Begin("debug")) {
 			ImGui::Checkbox("visible hitboxes", &debug_visible_hitboxes);
+			if (ImGui::Button("scream")) {
+				audio.play("scream");
+			}
 			ImGui::End();
 		}
 
 		ImGui::EndFrame();
+
+		audio.update();
+
 
 		// input
 
@@ -524,7 +526,7 @@ int main(int argc, char* argv[]) {
 					mut_ecs.emplace<sf::Shader*>(p_e, &disintegrate_shdr);
 					mut_ecs.remove<hitbox>(p_e);
 					mut_ecs.patch<player>(p_e, [&](player& p) { p.input = {}; });
-					sound.play();
+					audio.play("scream");
 				}
 			}
 		}
