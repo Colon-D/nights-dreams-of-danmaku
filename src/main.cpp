@@ -604,6 +604,14 @@ int main(int argc, char* argv[]) {
 			}
 		}
 
+		// render border
+		sf::RectangleShape border{ target_size };
+		border.setOrigin(target_size / 2.f);
+		border.setFillColor(sf::Color::Transparent);
+		border.setOutlineColor(sf::Color::White);
+		border.setOutlineThickness(1.f);
+		window.draw(border);
+
 		ImGui::SFML::Render(window);
 
 		window.display();
