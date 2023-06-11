@@ -14,6 +14,7 @@ import input;
 import math_utils;
 import audio;
 import texture;
+import ui;
 
 struct velocity : sf::Vector2f {
 	velocity(const sf::Vector2f& vel = {}) : sf::Vector2f{ vel } {}
@@ -111,28 +112,6 @@ entt::entity get_closest_player(
 	return closest_player;
 }
 
-// function to resize view
-void resize_view(sf::RenderWindow& window, const sf::Vector2f& target_size) {
-	const auto window_size =
-		static_cast<sf::Vector2f>(window.getSize());
-	const float window_ar{ window_size.x / window_size.y };
-	const float target_ar{ target_size.x / target_size.y };
-	sf::Vector2f size{};
-	if (window_ar < target_ar) {
-		size = {
-			target_size.x,
-			target_size.x / window_ar
-		};
-	}
-	else {
-		size = {
-			target_size.y * window_ar,
-			target_size.y
-		};
-	}
-	window.setView(sf::View{ {}, size });
-}
-
 int main(int argc, char* argv[]) {
 	if (!std::filesystem::exists("res/nights.png")) {
 		std::cerr << "ERROR: \"./res/nights.png\" can not be found.\n";
@@ -158,9 +137,8 @@ int main(int argc, char* argv[]) {
 
 	std::default_random_engine rng{ std::random_device{}() };
 
-	sf::RenderWindow window{ { 1280, 960 }, "NiGHTS: Dreams of Danmaku" };
-	const sf::Vector2f target_size{ 640.f, 480.f };
-	resize_view(window, target_size);
+	sf::RenderWindow window{ { 1280, 720 }, "NiGHTS: Dreams of Danmaku" };
+	sf::View gameplay_view{ {}, { 640.f, 480.f } };
 
 	ImGui::SFML::Init(window);
 	ImGui::GetIO().IniFilename = nullptr;
@@ -196,7 +174,7 @@ int main(int argc, char* argv[]) {
 	bool debug_visible_hitboxes{ false };
 
 	while (window.isOpen()) {
-		sf::Event event{};
+		sf::Event event {};
 		while (window.pollEvent(event)) {
 			ImGui::SFML::ProcessEvent(window, event);
 			switch (event.type) {
@@ -204,7 +182,6 @@ int main(int argc, char* argv[]) {
 				window.close();
 				break;
 			case sf::Event::Resized:
-				resize_view(window, target_size);
 				break;
 			}
 		}
@@ -226,7 +203,6 @@ int main(int argc, char* argv[]) {
 		ImGui::EndFrame();
 
 		audio.update();
-
 
 		// input
 
@@ -281,7 +257,7 @@ int main(int argc, char* argv[]) {
 			mut_ecs.patch<velocity>(e, [&](velocity& vel) {
 				// change vel's speed to go towards target_spd
 				const float curr_spd{ mag(vel) };
-				float spd{ curr_spd  };
+				float spd{ curr_spd };
 				if (curr_spd < target_spd) {
 					spd = std::min(curr_spd + acceleration * dt, target_spd);
 				}
@@ -331,12 +307,12 @@ int main(int argc, char* argv[]) {
 			// change direction if on edge of view
 			mut_ecs.patch<gillwing>(e, [&](gillwing& gw) {
 				if (gw.heading_right) {
-					if (spr.getPosition().x > target_size.x / 2.f) {
+					if (spr.getPosition().x > gameplay_view.getSize().x / 2.f) {
 						gw.heading_right = false;
 					}
 				}
 				else {
-					if (spr.getPosition().x < -target_size.x / 2.f) {
+					if (spr.getPosition().x < -gameplay_view.getSize().x / 2.f) {
 						gw.heading_right = true;
 					}
 				}
@@ -395,7 +371,7 @@ int main(int argc, char* argv[]) {
 				spr.move(dt * vel);
 			});
 		}
-		
+
 		// clamp player in bounds by sliding/bouncing off walls,
 		// recalculating their position, and often their velocity and facing
 		for (
@@ -407,24 +383,24 @@ int main(int argc, char* argv[]) {
 			const auto boost = player.input.boost();
 			const auto movement = player.input.movement() != sf::Vector2f{};
 			auto new_vel = vel;
-			auto new_facing	= facing;
+			auto new_facing = facing;
 			const auto rot_vel = angle::deg(800.f) * dt;
 			auto rotate_towards_closest_tangent = [](
 				const angle& angle,
 				const ::angle& tangent,
 				const ::angle& rot_vel
-			) {
-				const auto tangent2 = tangent + angle::deg(180.f);
-				const auto closest_tangent =
-					angle.diff(tangent).abs() < angle.diff(tangent2).abs()
-					? tangent
-					: tangent2;
-				return angle.rotate_towards(closest_tangent, rot_vel);
-			};
+				) {
+					const auto tangent2 = tangent + angle::deg(180.f);
+					const auto closest_tangent =
+						angle.diff(tangent).abs() < angle.diff(tangent2).abs()
+						? tangent
+						: tangent2;
+					return angle.rotate_towards(closest_tangent, rot_vel);
+				};
 			bool oob{ false };
 			// if oob, slide/bounce off wall
-			if (pos.x - hit.radius < -target_size.x / 2.f) {
-				pos.x = -target_size.x / 2.f + hit.radius;
+			if (pos.x - hit.radius < -gameplay_view.getSize().x / 2.f) {
+				pos.x = -gameplay_view.getSize().x / 2.f + hit.radius;
 				if (boost) {
 					new_vel.x = -vel.x;
 					new_facing.angle = angle::deg(180.f) - new_facing.angle;
@@ -434,10 +410,10 @@ int main(int argc, char* argv[]) {
 						facing.angle, angle::deg(90.f), rot_vel
 					);
 				}
-				oob	= true;
+				oob = true;
 			}
-			else if (pos.x + hit.radius > target_size.x / 2.f) {
-				pos.x = target_size.x / 2.f - hit.radius;
+			else if (pos.x + hit.radius > gameplay_view.getSize().x / 2.f) {
+				pos.x = gameplay_view.getSize().x / 2.f - hit.radius;
 				if (boost) {
 					new_vel.x = -vel.x;
 					new_facing.angle = angle::deg(180.f) - new_facing.angle;
@@ -447,10 +423,10 @@ int main(int argc, char* argv[]) {
 						facing.angle, angle::deg(90.f), rot_vel
 					);
 				}
-				oob	= true;
+				oob = true;
 			}
-			if (pos.y - hit.radius < -target_size.y / 2.f) {
-				pos.y =	-target_size.y / 2.f + hit.radius;
+			if (pos.y - hit.radius < -gameplay_view.getSize().y / 2.f) {
+				pos.y = -gameplay_view.getSize().y / 2.f + hit.radius;
 				if (boost) {
 					new_vel.y = -vel.y;
 					new_facing.angle = -new_facing.angle;
@@ -460,10 +436,10 @@ int main(int argc, char* argv[]) {
 						facing.angle, angle::deg(0.f), rot_vel
 					);
 				}
-				oob	= true;
+				oob = true;
 			}
-			else if (pos.y + hit.radius > target_size.y / 2.f) {
-				pos.y = target_size.y / 2.f - hit.radius;
+			else if (pos.y + hit.radius > gameplay_view.getSize().y / 2.f) {
+				pos.y = gameplay_view.getSize().y / 2.f - hit.radius;
 				if (boost) {
 					new_vel.y = -vel.y;
 					new_facing.angle = -new_facing.angle;
@@ -473,7 +449,7 @@ int main(int argc, char* argv[]) {
 						facing.angle, angle::deg(0.f), rot_vel
 					);
 				}
-				oob	= true;
+				oob = true;
 			}
 			// if not oob, don't update components
 			if (!oob) {
@@ -493,14 +469,18 @@ int main(int argc, char* argv[]) {
 		for (const auto& [e, spr] : ecs.view<danmaku, sf::Sprite>().each()) {
 			const auto& pos = spr.getPosition();
 			const auto& spr_size = spr.getScale();
-			const auto& tex_size = static_cast<sf::Vector2f>(spr.getTexture()->getSize());
-			const sf::Vector2f size{ spr_size.x * tex_size.x, spr_size.y * tex_size.y };
-			const auto& view_pos = window.getView().getCenter();
+			const auto tex_size =
+				static_cast<sf::Vector2f>(spr.getTexture()->getSize());
+			const sf::Vector2f size{
+				spr_size.x * tex_size.x, spr_size.y * tex_size.y
+			};
+			const auto& view_pos = gameplay_view.getCenter();
+			const auto& view_size = gameplay_view.getSize();
 			if (
-				pos.x + size.x < view_pos.x - target_size.x / 2.f
-				|| pos.x - size.x > view_pos.x + target_size.x / 2.f
-				|| pos.y + size.y < view_pos.y - target_size.y / 2.f
-				|| pos.y - size.y > view_pos.y + target_size.y / 2.f
+				pos.x + size.x < view_pos.x - view_size.x / 2.f
+				|| pos.x - size.x > view_pos.x + view_size.x / 2.f
+				|| pos.y + size.y < view_pos.y - view_size.y / 2.f
+				|| pos.y - size.y > view_pos.y + view_size.y / 2.f
 			) {
 				mut_ecs.destroy(e);
 			}
@@ -547,7 +527,7 @@ int main(int argc, char* argv[]) {
 		for (
 			const auto& [e, rtv, vel, _] :
 			ecs.view<rotate_towards_velocity, velocity, sf::Sprite>().each()
-		) {
+			) {
 			mut_ecs.patch<sf::Sprite>(e, [&](sf::Sprite& spr) {
 				const auto deg = fmod_pos(angle::from_vec(vel).deg(), 360.f);
 				spr.setRotation(deg);
@@ -570,42 +550,76 @@ int main(int argc, char* argv[]) {
 			}
 		}
 
-		// render sprites
-		window.clear();
-		for (const auto& [e, spr] : ecs.view<sf::Sprite>().each()) {
-			if (const auto shdr = ecs.try_get<sf::Shader*>(e)) {
-				if (const auto dis = ecs.try_get<disintegrate>(e)) {
-					mut_ecs.patch<sf::Shader*>(e, [&](sf::Shader* shdr) {
-						shdr->setUniform("disintegration", elapsed - dis->begin);
-					});
+		const auto draw_fn = [&](sf::RenderTarget& target) {
+			// set view
+			auto view = target.getView();
+			view.setCenter(gameplay_view.getCenter());
+			view.setSize(gameplay_view.getSize());
+			target.setView(view);
+
+			// set bg color
+			sf::RectangleShape bg{ gameplay_view.getSize() };
+			bg.setFillColor(sf::Color::Black);
+			bg.setOrigin(gameplay_view.getSize() / 2.f);
+			target.draw(bg);
+
+			// render sprites
+			for (const auto& [e, spr] : ecs.view<sf::Sprite>().each()) {
+				if (const auto shdr = ecs.try_get<sf::Shader*>(e)) {
+					if (const auto dis = ecs.try_get<disintegrate>(e)) {
+						mut_ecs.patch<sf::Shader*>(e, [&](sf::Shader* shdr) {
+							shdr->setUniform("disintegration", elapsed - dis->begin);
+						});
+					}
+					target.draw(spr, *shdr);
 				}
-				window.draw(spr, *shdr);
+				else {
+					target.draw(spr);
+				}
 			}
-			else {
-				window.draw(spr);
-			}
-		}
 
-		// render hitboxes
-		if (debug_visible_hitboxes) {
-			for(const auto &[e, spr, hit] : ecs.view<sf::Sprite, hitbox>().each()) {
-				sf::CircleShape circle{ hit.radius };
-				circle.setOrigin({ hit.radius, hit.radius });
-				circle.setPosition(spr.getPosition());
-				circle.setFillColor(
-					ecs.any_of<painful>(e) ? sf::Color::Red : sf::Color::Cyan
-				);
-				window.draw(circle);
+			// render hitboxes
+			if (debug_visible_hitboxes) {
+				for (const auto& [e, spr, hit] : ecs.view<sf::Sprite, hitbox>().each()) {
+					sf::CircleShape circle{ hit.radius };
+					circle.setOrigin({ hit.radius, hit.radius });
+					circle.setPosition(spr.getPosition());
+					circle.setFillColor(
+						ecs.any_of<painful>(e) ? sf::Color::Red : sf::Color::Cyan
+					);
+					target.draw(circle);
+				}
 			}
-		}
+		};
 
-		// render border
-		sf::RectangleShape border{ target_size };
-		border.setOrigin(target_size / 2.f);
-		border.setFillColor(sf::Color::Transparent);
-		border.setOutlineColor(sf::Color::White);
-		border.setOutlineThickness(1.f);
-		window.draw(border);
+		// ui test
+		auto leaf = std::make_unique<leaf_ui>();
+		leaf->size = gameplay_view.getSize();
+		leaf->draw_fn = draw_fn;
+
+		auto leaf2 = std::make_unique<leaf_ui>();
+		leaf2->size = { 128.f, gameplay_view.getSize().y };
+		leaf2->draw_fn = [&](sf::RenderTarget& target) {
+			// todo!
+		};
+
+		auto margin = std::make_unique<margin_ui>();
+		margin->child = std::move(leaf);
+		margin->margin = 16.f;
+
+		auto margin2 = std::make_unique<margin_ui>();
+		margin2->child = std::move(leaf2);
+		margin2->margin = 16.f;
+
+		auto row = std::make_unique<row_ui>();
+		row->children.reserve(2);
+		row->children.push_back(std::move(margin));
+		row->children.push_back(std::move(margin2));
+
+		center_and_scale_ui ui;
+		ui.child = std::move(row);
+
+		ui.draw(window, sf::FloatRect{ { 0.f, 0.f }, static_cast<sf::Vector2f>(window.getSize()) }, 1.f);
 
 		ImGui::SFML::Render(window);
 

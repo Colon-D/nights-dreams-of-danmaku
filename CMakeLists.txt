@@ -19,6 +19,7 @@ add_executable("${PROJECT_NAME}"
 	"src/resource/resource.ixx"
 	"src/resource/audio.ixx"
 	"src/resource/texture.ixx"
+	"src/ui.ixx"
 )
 target_compile_features("${PROJECT_NAME}" PUBLIC cxx_std_20)
 
