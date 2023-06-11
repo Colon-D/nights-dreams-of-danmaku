@@ -16,7 +16,9 @@ add_executable("${PROJECT_NAME}"
  	"src/angle.ixx"
 	"src/input.ixx"
 	"src/math_utils.ixx"
- 	"src/audio.ixx"
+	"src/resource/resource.ixx"
+	"src/resource/audio.ixx"
+	"src/resource/texture.ixx"
 )
 target_compile_features("${PROJECT_NAME}" PUBLIC cxx_std_20)
 

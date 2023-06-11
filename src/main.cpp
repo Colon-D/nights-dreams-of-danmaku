@@ -13,6 +13,7 @@ import angle;
 import input;
 import math_utils;
 import audio;
+import texture;
 
 struct velocity : sf::Vector2f {
 	velocity(const sf::Vector2f& vel = {}) : sf::Vector2f{ vel } {}
@@ -56,14 +57,12 @@ struct disintegrate {
 	float begin{};
 };
 
-entt::entity create_player(entt::registry& ecs, const sf::Vector2f& pos, const player& player, const sf::Texture& texture) {
+entt::entity create_player(entt::registry& ecs, const sf::Vector2f& pos, const player& player, sf::Sprite spr) {
 	const auto player_e = ecs.create();
 	ecs.emplace<::player>(player_e, player);
 
-	sf::Sprite player_spr{ texture };
-	player_spr.setOrigin(static_cast<sf::Vector2f>(texture.getSize()) / 2.f);
-	player_spr.setPosition(pos);
-	ecs.emplace<sf::Sprite>(player_e, player_spr);
+	spr.setPosition(pos);
+	ecs.emplace<sf::Sprite>(player_e, spr);
 
 	ecs.emplace<velocity>(player_e);
 	ecs.emplace<facing>(player_e, angle::deg(-90.f));
@@ -141,27 +140,21 @@ int main(int argc, char* argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	sf::Texture nights_tex{};
-	nights_tex.loadFromFile("res/nights.png");
-	sf::Texture reala_tex{};
-	reala_tex.loadFromFile("res/reala.png");
-	sf::Texture danmaku_tex{};
-	danmaku_tex.loadFromFile("res/danmaku.png");
-	danmaku_tex.setSmooth(true);
-	sf::Sprite danmaku_spr{ danmaku_tex };
+	texture texture{};
+	texture.load(".png");
+
+	audio audio{};
+	audio.load(".ogg");
+
+	auto danmaku_spr = texture.sprite("danmaku");
 	danmaku_spr.setOrigin({ 68.f, 63.5f });
 	danmaku_spr.setColor(sf::Color::Red);
-	sf::Texture gillwing_tex{};
-	gillwing_tex.loadFromFile("res/gillwing.png");
-	gillwing_tex.setSmooth(true);
 
 	sf::Shader danmaku_shdr{};
 	danmaku_shdr.loadFromFile("res/shaders/danmaku.frag", sf::Shader::Type::Fragment);
 
 	sf::Shader disintegrate_shdr{};
 	disintegrate_shdr.loadFromFile("res/shaders/disintegrate.frag", sf::Shader::Type::Fragment);
-
-	audio audio{};
 
 	std::default_random_engine rng{ std::random_device{}() };
 
@@ -175,15 +168,15 @@ int main(int argc, char* argv[]) {
 	entt::registry mut_ecs{};
 	const entt::registry& ecs = mut_ecs;
 
-	create_player(mut_ecs, { -100.f, 0.f }, { input::default_keyboard }, nights_tex);
-	create_player(mut_ecs, {  100.f, 0.f }, { input::default_gamepad() }, reala_tex);
+	create_player(mut_ecs, { -100.f, 0.f }, { input::default_keyboard }, texture.sprite("nights"));
+	create_player(mut_ecs, {  100.f, 0.f }, { input::default_gamepad() }, texture.sprite("reala"));
 
 	// create gillwing
 	const auto gillwing_e = mut_ecs.create();
 
 	mut_ecs.emplace<gillwing>(gillwing_e);
 
-	sf::Sprite gillwing_spr{ gillwing_tex };
+	sf::Sprite gillwing_spr{ texture.sprite("gillwing") };
 	gillwing_spr.setOrigin({ 750.f, 300.f });
 	constexpr float gillwing_scale{ 0.25f };
 	gillwing_spr.setScale({ gillwing_scale, gillwing_scale });
