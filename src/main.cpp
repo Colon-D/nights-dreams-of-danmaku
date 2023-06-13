@@ -141,7 +141,11 @@ int main(int argc, char* argv[]) {
 	sf::View gameplay_view{ {}, { 640.f, 480.f } };
 
 	ImGui::SFML::Init(window);
-	ImGui::GetIO().IniFilename = nullptr;
+	auto& imgui_io = ImGui::GetIO();
+	imgui_io.IniFilename = nullptr;
+	// default style (not reference or mutable as copy is used for scaling)
+	ImGui::GetStyle().Colors[ImGuiCol_WindowBg] = sf::Color::Black;
+	const auto imgui_style = ImGui::GetStyle();
 
 	entt::registry mut_ecs{};
 	const entt::registry& ecs = mut_ecs;
@@ -173,6 +177,58 @@ int main(int argc, char* argv[]) {
 
 	bool debug_visible_hitboxes{ false };
 
+	// create ui
+	center_and_scale_ui ui{};
+	leaf_ui* gameplay_ui{};
+	leaf_ui* imgui_ui{};
+	{
+		auto gameplay_ui_owned = std::make_unique<leaf_ui>();
+		gameplay_ui = gameplay_ui_owned.get();
+		gameplay_ui->size = gameplay_view.getSize();
+		gameplay_ui->draw_fn = [&](sf::RenderTarget& target) {
+			// todo!
+		};
+		auto gameplay_margin_ui = std::make_unique<margin_ui>();
+		gameplay_margin_ui->child = std::move(gameplay_ui_owned);
+		gameplay_margin_ui->margin = 8.f;
+
+		auto imgui_ui_owned = std::make_unique<leaf_ui>();
+		imgui_ui = imgui_ui_owned.get();
+		imgui_ui->size = { 192.f, gameplay_view.getSize().y };
+		imgui_ui->draw_fn = [&](sf::RenderTarget& target) {
+			// todo!
+		};
+		auto imgui_margin_ui = std::make_unique<margin_ui>();
+		imgui_margin_ui->child = std::move(imgui_ui_owned);
+		imgui_margin_ui->margin = 8.f;
+
+		auto row_ui = std::make_unique<::row_ui>();
+		row_ui->children.push_back(std::move(gameplay_margin_ui));
+		row_ui->children.push_back(std::move(imgui_margin_ui));
+
+		ui.child = std::move(row_ui);
+
+	}
+
+	const auto resized_window = [&]() {
+		// resize ui
+		ui.viewport_area = {
+			{ 0.f, 0.f }, static_cast<sf::Vector2f>(window.getSize())
+		};
+		ui.update();
+		// resize imgui
+		auto imgui_new_style = imgui_style;
+		imgui_new_style.ScaleAllSizes(imgui_ui->scale);
+		ImGui::GetStyle() = imgui_new_style;
+		imgui_io.Fonts->Clear();
+		imgui_io.Fonts->AddFontFromFileTTF(
+			"res/FiraSans-Regular.ttf",
+			16.f * imgui_ui->scale
+		);
+		ImGui::SFML::UpdateFontTexture();
+	};
+	resized_window();
+
 	while (window.isOpen()) {
 		sf::Event event {};
 		while (window.pollEvent(event)) {
@@ -182,6 +238,7 @@ int main(int argc, char* argv[]) {
 				window.close();
 				break;
 			case sf::Event::Resized:
+				resized_window();
 				break;
 			}
 		}
@@ -192,9 +249,19 @@ int main(int argc, char* argv[]) {
 		elapsed += dt;
 		danmaku_shdr.setUniform("time_elapsed", elapsed);
 
-		if (ImGui::Begin("debug")) {
+		if (ImGui::Begin(
+			"debug",
+			nullptr,
+			ImGuiWindowFlags_::ImGuiWindowFlags_NoTitleBar
+			| ImGuiWindowFlags_::ImGuiWindowFlags_NoResize
+			| ImGuiWindowFlags_::ImGuiWindowFlags_NoMove
+			| ImGuiWindowFlags_::ImGuiWindowFlags_NoCollapse
+		)) {
+			ImGui::SetWindowPos(imgui_ui->viewport_area.getPosition());
+			ImGui::SetWindowSize(imgui_ui->viewport_area.getSize());
+
 			ImGui::Checkbox("visible hitboxes", &debug_visible_hitboxes);
-			if (ImGui::Button("scream")) {
+			if (ImGui::Button("funny scream")) {
 				audio.play("scream");
 			}
 			ImGui::End();
@@ -550,7 +617,7 @@ int main(int argc, char* argv[]) {
 			}
 		}
 
-		const auto draw_fn = [&](sf::RenderTarget& target) {
+		const auto gameplay_draw_fn = [&](sf::RenderTarget& target) {
 			// set view
 			auto view = target.getView();
 			view.setCenter(gameplay_view.getCenter());
@@ -591,36 +658,9 @@ int main(int argc, char* argv[]) {
 				}
 			}
 		};
+		gameplay_ui->draw_fn = gameplay_draw_fn;
 
-		// ui test
-		auto leaf = std::make_unique<leaf_ui>();
-		leaf->size = gameplay_view.getSize();
-		leaf->draw_fn = draw_fn;
-
-		auto leaf2 = std::make_unique<leaf_ui>();
-		leaf2->size = { 128.f, gameplay_view.getSize().y };
-		leaf2->draw_fn = [&](sf::RenderTarget& target) {
-			// todo!
-		};
-
-		auto margin = std::make_unique<margin_ui>();
-		margin->child = std::move(leaf);
-		margin->margin = 16.f;
-
-		auto margin2 = std::make_unique<margin_ui>();
-		margin2->child = std::move(leaf2);
-		margin2->margin = 16.f;
-
-		auto row = std::make_unique<row_ui>();
-		row->children.reserve(2);
-		row->children.push_back(std::move(margin));
-		row->children.push_back(std::move(margin2));
-
-		center_and_scale_ui ui;
-		ui.child = std::move(row);
-
-		ui.draw(window, sf::FloatRect{ { 0.f, 0.f }, static_cast<sf::Vector2f>(window.getSize()) }, 1.f);
-
+		ui.draw(window);
 		ImGui::SFML::Render(window);
 
 		window.display();

@@ -10,10 +10,11 @@ struct ui {
 	virtual ~ui() = default;
 	virtual sf::Vector2f min_size() const = 0;
 
-	virtual void update(sf::FloatRect viewport_area, float scale) {
+	// todo: this could take viewport_area and scale as parameters
+	virtual void update() {
 	}
 
-	virtual void draw(sf::RenderTarget& target, sf::FloatRect viewport_area, float scale) const {
+	virtual void draw(sf::RenderTarget& target) const {
 		sf::View view{ viewport_area };
 		view.setViewport({
 			viewport_area.left   / target.getSize().x,
@@ -33,6 +34,11 @@ struct ui {
 		test.setOutlineThickness(1.f);
 		target.draw(test);
 	};
+
+	/// post processed area
+	sf::FloatRect viewport_area{};
+	/// post processed scale
+	float scale{};
 };
 
 export struct leaf_ui : ui {
@@ -40,13 +46,12 @@ export struct leaf_ui : ui {
 		return size;
 	}
 
-	void draw(sf::RenderTarget& target, sf::FloatRect viewport_area, float scale) const override {
-		ui::draw(target, viewport_area, scale);
+	void draw(sf::RenderTarget& target) const override {
+		ui::draw(target);
 		draw_fn(target);
 	}
 
 	sf::Vector2f size{};
-	std::function<void(sf::FloatRect viewport_area, float scale)> update_fn{};
 	std::function<void(sf::RenderTarget& target)> draw_fn{};
 };
 
@@ -57,14 +62,22 @@ export struct margin_ui : ui {
 			+ sf::Vector2f{ margin, margin } * 2.f;
 	}
 
-	void draw(sf::RenderTarget& target, sf::FloatRect viewport_area, float scale) const override {
-		ui::draw(target, viewport_area, scale);
+	void update() {
+		ui::update();
 
-		viewport_area.left   += scale * margin;
-		viewport_area.top    += scale * margin;
-		viewport_area.width  -= scale * margin * 2.f;
-		viewport_area.height -= scale * margin * 2.f;
-		child->draw(target, viewport_area, scale);
+		child->viewport_area = viewport_area;
+		child->viewport_area.left += scale * margin;
+		child->viewport_area.top += scale * margin;
+		child->viewport_area.width -= scale * margin * 2.f;
+		child->viewport_area.height -= scale * margin * 2.f;
+		child->scale = scale;
+
+		child->update();
+	}
+
+	void draw(sf::RenderTarget& target) const override {
+		ui::draw(target);
+		child->draw(target);
 	}
 
 	std::unique_ptr<ui> child{};
@@ -81,14 +94,24 @@ export struct row_ui : ui {
 		return size;
 	}
 
-	void draw(sf::RenderTarget& target, sf::FloatRect viewport_area, float scale) const override {
-		ui::draw(target, viewport_area, scale);
+	void update() {
+		ui::update();
+		auto child_viewport_area = viewport_area;
+		for (const auto& child : children) {
+			child_viewport_area.width = child->min_size().x * scale;
+			child_viewport_area.height = child->min_size().y * scale;
+			child->viewport_area = child_viewport_area;
+			child->scale = scale;
+			child->update();
+			child_viewport_area.left += child_viewport_area.width;
+		}
+	}
+
+	void draw(sf::RenderTarget& target) const override {
+		ui::draw(target);
 
 		for (const auto& child : children) {
-			viewport_area.width = child->min_size().x * scale;
-			viewport_area.height = child->min_size().y * scale;
-			child->draw(target, viewport_area, scale);
-			viewport_area.left += viewport_area.width;
+			child->draw(target);
 		}
 	}
 
@@ -99,28 +122,33 @@ export struct center_and_scale_ui : ui {
 	sf::Vector2f min_size() const override {
 		return child->min_size();
 	}
+	
+	void update() {
+		ui::update();
 
-	void draw(sf::RenderTarget& target, sf::FloatRect viewport_area, float scale) const override {
-		ui::draw(target, viewport_area, scale);
-
-		// resize viewport area to resize and fit child in center
+		child->viewport_area = viewport_area;
 		const auto child_size = child->min_size();
 		const auto child_ratio = child_size.x / child_size.y;
 		const auto viewport_ratio = viewport_area.width / viewport_area.height;
 		if (viewport_ratio > child_ratio) {
-			const auto old_width = viewport_area.width;
-			viewport_area.width = viewport_area.height * child_ratio;
-			viewport_area.left += (old_width - viewport_area.width) / 2.f;
+			child->viewport_area.width = viewport_area.height * child_ratio;
+			child->viewport_area.left += (viewport_area.width - child->viewport_area.width) / 2.f;
 			scale = viewport_area.height / child_size.y;
+			child->scale = scale;
 		}
 		else {
-			const auto old_height = viewport_area.height;
-			viewport_area.height = viewport_area.width / child_ratio;
-			viewport_area.top += (old_height - viewport_area.height) / 2.f;
+			child->viewport_area.height = viewport_area.width / child_ratio;
+			child->viewport_area.top += (viewport_area.height - child->viewport_area.height) / 2.f;
 			scale = viewport_area.width / child_size.x;
+			child->scale = scale;
 		}
 
-		child->draw(target, viewport_area, scale);
+		child->update();
+	}
+
+	void draw(sf::RenderTarget& target) const override {
+		ui::draw(target);
+		child->draw(target);
 	}
 
 	std::unique_ptr<ui> child{};
