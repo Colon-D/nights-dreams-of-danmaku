@@ -144,7 +144,20 @@ int main(int argc, char* argv[]) {
 	auto& imgui_io = ImGui::GetIO();
 	imgui_io.IniFilename = nullptr;
 	// default style (not reference or mutable as copy is used for scaling)
-	ImGui::GetStyle().Colors[ImGuiCol_WindowBg] = sf::Color::Black;
+	{
+		auto& style = ImGui::GetStyle();
+		auto& colors = style.Colors;
+		colors[ImGuiCol_WindowBg]       = sf::Color::Transparent;
+		colors[ImGuiCol_Button]         = sf::Color{ 0xFF31B5FF };
+		colors[ImGuiCol_ButtonHovered]  = sf::Color{ 0xFF31B57F };
+		colors[ImGuiCol_ButtonActive]   = sf::Color{ 0xFF31B53F };
+		colors[ImGuiCol_CheckMark]      = sf::Color{ 0xFFFFFFFF };
+		colors[ImGuiCol_FrameBg]        = sf::Color{ 0xFF31B5FF };
+		colors[ImGuiCol_FrameBgHovered] = sf::Color{ 0xFF31B57F };
+		colors[ImGuiCol_FrameBgActive]  = sf::Color{ 0xFF31B53F };
+		style.WindowBorderSize = 0.f;
+	}
+
 	const auto imgui_style = ImGui::GetStyle();
 
 	entt::registry mut_ecs{};
@@ -186,7 +199,7 @@ int main(int argc, char* argv[]) {
 		gameplay_ui = gameplay_ui_owned.get();
 		gameplay_ui->size = gameplay_view.getSize();
 		gameplay_ui->draw_fn = [&](sf::RenderTarget& target) {
-			// todo!
+			// replaced later
 		};
 		auto gameplay_margin_ui = std::make_unique<margin_ui>();
 		gameplay_margin_ui->child = std::move(gameplay_ui_owned);
@@ -196,7 +209,16 @@ int main(int argc, char* argv[]) {
 		imgui_ui = imgui_ui_owned.get();
 		imgui_ui->size = { 192.f, gameplay_view.getSize().y };
 		imgui_ui->draw_fn = [&](sf::RenderTarget& target) {
-			// todo!
+			auto logo_sprite = texture.sprite("logo");
+			const auto& sprite_size = logo_sprite.getTexture()->getSize();
+			const auto scale_down = imgui_ui->size.x / sprite_size.x;
+			logo_sprite.scale({ scale_down, scale_down });
+			logo_sprite.setPosition({
+				0.f,
+				imgui_ui->size.y / 2.f - scale_down * sprite_size.y / 2.f
+			});
+			target.draw(logo_sprite);
+			// the rest of the ui is drawn by imgui
 		};
 		auto imgui_margin_ui = std::make_unique<margin_ui>();
 		imgui_margin_ui->child = std::move(imgui_ui_owned);
@@ -660,6 +682,7 @@ int main(int argc, char* argv[]) {
 		};
 		gameplay_ui->draw_fn = gameplay_draw_fn;
 
+		window.clear(sf::Color{ 0x8C00ADFF });
 		ui.draw(window);
 		ImGui::SFML::Render(window);
 

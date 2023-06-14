@@ -15,24 +15,6 @@ struct ui {
 	}
 
 	virtual void draw(sf::RenderTarget& target) const {
-		sf::View view{ viewport_area };
-		view.setViewport({
-			viewport_area.left   / target.getSize().x,
-			viewport_area.top    / target.getSize().y,
-			viewport_area.width  / target.getSize().x,
-			viewport_area.height / target.getSize().y
-		});
-		target.setView(view);
-		sf::RectangleShape test{ viewport_area.getSize() - sf::Vector2f{ 4.f, 4.f } };
-		test.setPosition(viewport_area.getPosition() + sf::Vector2f{ 2.f, 2.f });
-		test.setFillColor(sf::Color::Blue);
-		test.setOutlineColor(sf::Color::Red);
-		test.setOutlineThickness(2.f);
-		target.draw(test);
-		test.setSize(min_size() - sf::Vector2f{ 2.f, 2.f });
-		test.setOutlineColor(sf::Color::Green);
-		test.setOutlineThickness(1.f);
-		target.draw(test);
 	};
 
 	/// post processed area
@@ -48,6 +30,14 @@ export struct leaf_ui : ui {
 
 	void draw(sf::RenderTarget& target) const override {
 		ui::draw(target);
+		sf::View view{ {}, size };
+		view.setViewport({
+			viewport_area.left / target.getSize().x,
+			viewport_area.top / target.getSize().y,
+			viewport_area.width / target.getSize().x,
+			viewport_area.height / target.getSize().y
+		});
+		target.setView(view);
 		draw_fn(target);
 	}
 
