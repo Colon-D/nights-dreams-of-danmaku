@@ -2,6 +2,7 @@ module;
 #include <numbers>
 #include <SFML/System/Vector2.hpp>
 #include <utility>
+#include <iostream>
 
 export module angle;
 import math_utils;
@@ -13,7 +14,7 @@ export struct angle {
 		return angle{}.set_deg(deg);
 	}
 	constexpr static angle rad(const float deg) {
-		return angle{}.set_deg(deg);
+		return angle{}.set_rad(deg);
 	}
 
 	constexpr float deg() const {
@@ -116,13 +117,12 @@ export constexpr angle operator/(angle lhs, const float scalar) {
 [[nodiscard]]
 inline angle angle::rotate_towards(const angle target, const angle by) const {
 	auto out = *this;
-	const auto diff = target.diff(out);
-
+	const auto diff = out.diff(target);
 	if (diff.rad() < 0.f) {
-		out += std::max(diff, by);
+		out += std::max(diff, -by);
 	}
 	else {
-		out += std::min(diff, -by);
+		out += std::min(diff, by);
 	}
 	return out;
 }

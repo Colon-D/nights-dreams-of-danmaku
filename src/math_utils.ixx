@@ -28,6 +28,6 @@ sf::Vector2f normalized(const sf::Vector2f& vec) {
 
 // https://stackoverflow.com/a/7869457
 export template<typename dividend_t, typename divisor_t>
-dividend_t fmod_pos(dividend_t dividend, divisor_t divisor) {
+constexpr dividend_t fmod_pos(dividend_t dividend, divisor_t divisor) {
 	return std::fmod((std::fmod(dividend, divisor) + divisor), divisor);
 }
