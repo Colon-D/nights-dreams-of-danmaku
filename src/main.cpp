@@ -9,6 +9,7 @@
 #include <iostream>
 #include <memory>
 #include <random>
+#include <array>
 import angle;
 import input;
 import math_utils;
@@ -24,6 +25,8 @@ struct velocity : sf::Vector2f {
 
 struct player {
 	input input{};
+	int ideya{ 5 };
+	float last_hit{};
 };
 
 struct facing {
@@ -131,9 +134,10 @@ int main(int argc, char* argv[]) {
 
 	sf::Shader danmaku_shdr{};
 	danmaku_shdr.loadFromFile("res/shaders/danmaku.frag", sf::Shader::Type::Fragment);
-
 	sf::Shader disintegrate_shdr{};
 	disintegrate_shdr.loadFromFile("res/shaders/disintegrate.frag", sf::Shader::Type::Fragment);
+	sf::Shader ideya_shdr{};
+	ideya_shdr.loadFromFile("res/shaders/ideya.frag", sf::Shader::Type::Fragment);
 
 	std::default_random_engine rng{ std::random_device{}() };
 
@@ -577,18 +581,34 @@ int main(int argc, char* argv[]) {
 
 		// check for collisions between painful hitboxes and players
 		for (const auto& [d_e, d_spr, d_hit] : ecs.view<painful, sf::Sprite, hitbox>().each()) {
-			for (const auto& [p_e, _, p_spr, p_hit] : ecs.view<player, sf::Sprite, hitbox>().each()) {
+			// player loop is inner so they can't collide twice in one frame
+			for (const auto& [p_e, p_p, p_spr, p_hit] : ecs.view<player, sf::Sprite, hitbox>().each()) {
+				constexpr float invuln_time = 1.f;
+				// if player is invuln
+				if (p_p.last_hit + invuln_time > elapsed) {
+					continue;
+				}
 				// compare radius of hitboxes alongside position from sprite
 				const auto& d_pos = d_spr.getPosition();
 				const auto& p_pos = p_spr.getPosition();
 				const auto dist = mag(d_pos - p_pos);
 				if (dist < d_hit.radius + p_hit.radius) {
-					// collision detected, disintegrate player
-					mut_ecs.emplace<disintegrate>(p_e, elapsed);
-					mut_ecs.emplace<sf::Shader*>(p_e, &disintegrate_shdr);
-					mut_ecs.remove<hitbox>(p_e);
-					mut_ecs.patch<player>(p_e, [&](player& p) { p.input = {}; });
-					audio.play("scream");
+					// collision detected, damage player (reduce ideya)
+					mut_ecs.patch<player>(p_e, [&](player& p) {
+						--p.ideya;
+						// if no more ideya (dead)
+						if (p.ideya <= 0) {
+							mut_ecs.emplace<disintegrate>(p_e, elapsed);
+							mut_ecs.emplace<sf::Shader*>(p_e, &disintegrate_shdr);
+							mut_ecs.remove<hitbox>(p_e);
+							p.input = {};
+							audio.play("scream");
+						}
+						else {
+							audio.play("hurt");
+							p.last_hit = elapsed;
+						}
+					});
 				}
 			}
 		}
@@ -664,6 +684,40 @@ int main(int argc, char* argv[]) {
 				}
 				else {
 					target.draw(spr);
+				}
+			}
+
+			// render player ideya
+			for (const auto& [_, spr, player, hit] : ecs.view<sf::Sprite, player, hitbox>().each()) {
+				// draw hitbox ideya
+				auto ideya_spr = texture.sprite("ideya");
+				ideya_spr.setColor(sf::Color{ 0xFF3F3FFF });
+				const auto& ideya_scale = 2.f * hit.radius / ideya_spr.getTexture()->getSize().x;
+				ideya_spr.setScale({ ideya_scale, ideya_scale });
+				ideya_spr.setPosition(spr.getPosition());
+				target.draw(ideya_spr, &ideya_shdr);
+
+				// draw orbitting ideya
+				const std::array<sf::Color, 4> orbit_colors{
+					sf::Color{ 0xFFFFFFFF },
+					sf::Color{ 0x3FFF3FFF },
+					sf::Color{ 0xFFFF3FFF },
+					sf::Color{ 0x3F3FFFFF }
+				};
+				const auto orbit_radius = 24.f;
+				const auto orbit_speed = 120.f;
+				const auto orbit_init = elapsed * orbit_speed;
+				for (std::size_t ideya_idx{ 0 }; ideya_idx < player.ideya - 1; ++ideya_idx) {
+					ideya_spr.setColor(orbit_colors[ideya_idx]);
+					// use lerp
+					const auto orbit_angle = angle::deg(
+						orbit_init + 360.f * ideya_idx / (player.ideya - 1)
+					);
+					ideya_spr.setPosition(
+						spr.getPosition() +
+						orbit_radius * orbit_angle.vec()
+					);
+					target.draw(ideya_spr, &ideya_shdr);
 				}
 			}
 
