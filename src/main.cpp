@@ -18,6 +18,7 @@
 #include "ui.h"
 #include "resource/audio.h"
 #include "resource/texture.h"
+#include "constants.h"
 
 entt::entity create_player(entt::registry& ecs, const sf::Vector2f& pos, const player& player, const sprite& spr) {
 	const auto player_e = ecs.create();
@@ -244,7 +245,7 @@ int main(int argc, char* argv[]) {
 		elapsed += var_dt;
 
 		accumulator += var_dt;
-		constexpr float dt{ 1.f / 60.f };
+		constexpr float dt{ fixed_timestep };
 ;		if (accumulator > dt) {
 			accumulator = std::fmod(accumulator, dt);
 
@@ -436,14 +437,14 @@ int main(int argc, char* argv[]) {
 					const angle& angle,
 					const ::angle& tangent,
 					const ::angle& rot_vel
-					) {
-						const auto tangent2 = tangent + angle::deg(180.f);
-						const auto closest_tangent =
-							angle.diff(tangent).abs() < angle.diff(tangent2).abs()
-							? tangent
-							: tangent2;
-						return angle.rotate_towards(closest_tangent, rot_vel);
-					};
+				) {
+					const auto tangent2 = tangent + angle::deg(180.f);
+					const auto closest_tangent =
+						angle.diff(tangent).abs() < angle.diff(tangent2).abs()
+						? tangent
+						: tangent2;
+					return angle.rotate_towards(closest_tangent, rot_vel);
+				};
 				bool oob{ false };
 				// if oob, slide/bounce off wall
 				if (pos.x - hit.radius < -gameplay_view.getSize().x / 2.f) {
@@ -528,6 +529,52 @@ int main(int argc, char* argv[]) {
 					mut_ecs.destroy(e);
 				}
 			}
+
+
+			// update player's paraloop points
+			for (const auto& [e, _, t] : ecs.view<player, transform>().each()) {
+				mut_ecs.patch<player>(e, [&](player& p) {
+					// add point to paraloop_points
+					// - if too big, move all points back one then remove back
+					if (p.paraloop_points.size() >= p.max_paraloop_points) {
+						std::rotate(
+							p.paraloop_points.begin(),
+							p.paraloop_points.begin() + 1,
+							p.paraloop_points.end()
+						);
+						p.paraloop_points.pop_back();
+					}
+					p.paraloop_points.push_back(t.pos);
+
+					// check to see if line formed by last two points intersects any other two points
+					if (p.paraloop_points.size() > 5) {
+						line end{ p.paraloop_points[p.paraloop_points.size() - 2], p.paraloop_points.back() };
+						for (std::size_t i{ 0 }; i < p.paraloop_points.size() - 4; ++i) {
+							line other{ p.paraloop_points[i], p.paraloop_points[i + 1] };
+							if (intersects(other, end)) {
+								// PARALOOP OCCURED
+								const auto paraloop_begin = p.paraloop_points.begin() + i;
+								const auto paraloop_end = p.paraloop_points.end();
+								std::vector<sf::Vector2f> paraloop{ paraloop_begin, paraloop_end };
+
+								// find all danmaku inside the paraloop and destroy them
+								for (const auto& [d_e, d_t] : ecs.view<danmaku, transform>().each()) {
+									if (intersects(d_t.pos, paraloop)) {
+										mut_ecs.destroy(d_e);
+									}
+								}
+
+								// clear paraloop points
+								p.paraloop_points.clear();
+
+								break;
+							}
+						}
+					}
+				});
+			}
+
+
 
 			// check for collisions between painful hitboxes and players
 			for (const auto& [d_e, d_t, d_hit] : ecs.view<painful, transform, hitbox>().each()) {
@@ -718,6 +765,16 @@ int main(int argc, char* argv[]) {
 					);
 					target.draw(circle);
 				}
+			}
+
+			// render player's paraloop lines (debugging)
+			for (const auto& [e, p] : ecs.view<player>().each()) {
+				sf::VertexArray va{ sf::PrimitiveType::LineStrip };
+				va.resize(p.paraloop_points.size());
+				for (std::size_t i{ 0 }; i < p.paraloop_points.size(); ++i) {
+					va[i].position = p.paraloop_points[i];
+				}
+				target.draw(va);
 			}
 		};
 		gameplay_ui->draw_fn = gameplay_draw_fn;

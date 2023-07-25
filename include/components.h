@@ -3,6 +3,7 @@
 #include <SFML/Graphics/Sprite.hpp>
 #include "input.h"
 #include "angle.h"
+#include "constants.h"
 
 struct velocity : sf::Vector2f {
 	velocity(const sf::Vector2f& vel = {}) : sf::Vector2f{ vel } {}
@@ -17,6 +18,11 @@ struct player {
 	input input{};
 	int ideya{ 5 };
 	float last_hit{};
+	// store 2.5s of paraloop points
+	std::vector<sf::Vector2f> paraloop_points{};
+	constexpr static std::size_t max_paraloop_points{
+		static_cast<std::size_t>(fixed_framerate * 2.5)
+	};
 };
 
 struct facing {
