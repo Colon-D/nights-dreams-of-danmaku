@@ -1,15 +1,13 @@
-module;
+#pragma once
 #include <numbers>
 #include <SFML/System/Vector2.hpp>
 #include <utility>
 #include <iostream>
-
-export module angle;
-import math_utils;
+#include "math_utils.h"
 
 constexpr float pi = std::numbers::pi_v<float>;
 
-export struct angle {
+struct angle {
 	constexpr static angle deg(const float deg) {
 		return angle{}.set_deg(deg);
 	}
@@ -35,15 +33,8 @@ export struct angle {
 		return *this;
 	}
 
-	sf::Vector2f vec() const {
-		return {
-			cosf(radians),
-			sinf(radians)
-		};
-	}
-	static angle from_vec(const sf::Vector2f& vec) {
-		return angle{}.set_rad(atan2(vec.y, vec.x));
-	}
+	sf::Vector2f vec() const;
+	static angle from_vec(const sf::Vector2f& vec);
 
 	// https://stackoverflow.com/a/7869457
 	constexpr angle diff(const angle to) const {
@@ -53,6 +44,13 @@ export struct angle {
 
 	constexpr angle abs() const {
 		return angle::rad(std::abs(radians));
+	}
+
+	// https://stackoverflow.com/a/7869457
+	// returns value normalized to [-pi, pi]
+	[[nodiscard]]
+	constexpr angle normalize() const {
+		return angle::rad(fmod_pos(radians + pi, pi * 2.f) - pi);
 	}
 
 	[[nodiscard]]
@@ -82,47 +80,42 @@ private:
 	float radians{};
 };
 
-export constexpr bool operator<(const angle& lhs, const angle& rhs) {
+constexpr bool operator<(const angle& lhs, const angle& rhs) {
 	return lhs.rad() < rhs.rad();
 }
-export constexpr bool operator>(const angle& lhs, const angle& rhs) {
+constexpr bool operator>(const angle& lhs, const angle& rhs) {
 	return lhs.rad() > rhs.rad();
 }
-export constexpr bool operator<=(const angle& lhs, const angle& rhs) {
+constexpr bool operator<=(const angle& lhs, const angle& rhs) {
 	return lhs.rad() <= rhs.rad();
 }
-export constexpr bool operator>=(const angle& lhs, const angle& rhs) {
+constexpr bool operator>=(const angle& lhs, const angle& rhs) {
 	return lhs.rad() >= rhs.rad();
 }
-export constexpr bool operator==(const angle& lhs, const angle& rhs) {
+constexpr bool operator==(const angle& lhs, const angle& rhs) {
 	return lhs.rad() == rhs.rad();
 }
-export constexpr bool operator!=(const angle& lhs, const angle& rhs) {
+constexpr bool operator!=(const angle& lhs, const angle& rhs) {
 	return lhs.rad() != rhs.rad();
 }
 
-export constexpr angle operator+(angle lhs, const angle& rhs) {
+constexpr angle operator+(angle lhs, const angle& rhs) {
 	return lhs += rhs;
 }
-export constexpr angle operator-(angle lhs, const angle& rhs) {
+constexpr angle operator-(angle lhs, const angle& rhs) {
 	return lhs -= rhs;
 }
-export constexpr angle operator*(angle lhs, const float scalar) {
+constexpr angle operator*(angle lhs, const float scalar) {
 	return lhs *= scalar;
 }
-export constexpr angle operator/(angle lhs, const float scalar) {
+constexpr angle operator*(const float scalar, angle rhs) {
+	return rhs *= scalar;
+}
+constexpr angle operator/(angle lhs, const float scalar) {
 	return lhs /= scalar;
 }
 
-[[nodiscard]]
-inline angle angle::rotate_towards(const angle target, const angle by) const {
-	auto out = *this;
-	const auto diff = out.diff(target);
-	if (diff.rad() < 0.f) {
-		out += std::max(diff, -by);
-	}
-	else {
-		out += std::min(diff, by);
-	}
-	return out;
+constexpr angle lerp(const angle& a, const angle& b, const float t) {
+	return angle::rad(lerp(a.rad(), (a + b.diff(a)).rad(), t));
 }
+

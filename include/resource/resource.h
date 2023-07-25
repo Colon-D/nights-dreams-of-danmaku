@@ -1,12 +1,10 @@
-module;
+#pragma once
 #include <filesystem>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 
-export module resource;
-
-export template<typename resource_type>
+template<typename resource_type>
 class resource {
 public:
 	/// needed as constructor can't call child's overridden function
@@ -15,7 +13,7 @@ public:
 		for (
 			const auto path :
 			std::filesystem::recursive_directory_iterator("res")
-		) {
+			) {
 			if (path.path().extension() != ext) {
 				continue;
 			}

@@ -10,63 +10,22 @@
 #include <memory>
 #include <random>
 #include <array>
-import angle;
-import input;
-import math_utils;
-import audio;
-import texture;
-import ui;
+#include "input.h"
+#include "angle.h"
+#include "math_utils.h"
+#include "components.h"
+#include "prev.h"
+#include "ui.h"
+#include "resource/audio.h"
+#include "resource/texture.h"
 
-struct velocity : sf::Vector2f {
-	velocity(const sf::Vector2f& vel = {}) : sf::Vector2f{ vel } {}
-	using sf::Vector2f::Vector2f;
-	using sf::Vector2f::operator=;
-};
-
-struct player {
-	input input{};
-	int ideya{ 5 };
-	float last_hit{};
-};
-
-struct facing {
-	angle angle{};
-};
-
-struct gillwing {
-	float timer{ 0.f };
-	bool heading_right{ true };
-};
-
-// erased offscreen
-struct danmaku {
-};
-
-// hurts the player
-struct painful {
-};
-
-struct rotate_towards_velocity {
-	bool flip{ false };
-};
-
-struct gravity {
-};
-
-struct hitbox {
-	float radius{};
-};
-
-struct disintegrate {
-	float begin{};
-};
-
-entt::entity create_player(entt::registry& ecs, const sf::Vector2f& pos, const player& player, sf::Sprite spr) {
+entt::entity create_player(entt::registry& ecs, const sf::Vector2f& pos, const player& player, const sprite& spr) {
 	const auto player_e = ecs.create();
 	ecs.emplace<::player>(player_e, player);
 
-	spr.setPosition(pos);
-	ecs.emplace<sf::Sprite>(player_e, spr);
+	ecs.emplace<transform>(player_e, pos);
+	ecs.emplace<prev<transform>>(player_e, pos);
+	ecs.emplace<sprite>(player_e, spr);
 
 	ecs.emplace<velocity>(player_e);
 	ecs.emplace<facing>(player_e, angle::deg(-90.f));
@@ -76,14 +35,16 @@ entt::entity create_player(entt::registry& ecs, const sf::Vector2f& pos, const p
 	return player_e;
 }
 
-entt::entity create_danmaku(entt::registry& ecs, sf::Shader& shdr, sf::Sprite spr, const sf::Vector2f& pos, const velocity& vel, const sf::Color& col) {
+entt::entity create_danmaku(entt::registry& ecs, sf::Shader& shdr, sprite spr, const sf::Vector2f& pos, const velocity& vel, const sf::Color& col) {
 	const auto e = ecs.create();
 	ecs.emplace<danmaku>(e);
 	ecs.emplace<rotate_towards_velocity>(e);
 
-	spr.setPosition(pos);
-	spr.setColor(col);
-	ecs.emplace<sf::Sprite>(e, spr);
+	spr.color = col;
+	ecs.emplace<sprite>(e, spr);
+	const transform trans{ pos };
+	ecs.emplace<transform>(e, trans);
+	ecs.emplace<prev<transform>>(e, trans);
 
 	ecs.emplace<velocity>(e, vel);
 
@@ -100,14 +61,14 @@ entt::entity get_closest_player(
 	const entt::registry& ecs, const sf::Vector2f& pos
 ) {
 	entt::entity closest_player{ entt::null };
-	for (const auto& [p, p_spr, _] : ecs.view<sf::Sprite, player>().each()) {
+	for (const auto& [p, p_t, _] : ecs.view<transform, player>().each()) {
 		if (closest_player == entt::null) {
 			closest_player = p;
 			continue;
 		}
-		const auto& closest_p_spr = ecs.get<sf::Sprite>(closest_player);
-		const auto dist = pos - p_spr.getPosition();
-		const auto closest_dist = pos - closest_p_spr.getPosition();
+		const auto& closest_p_t = ecs.get<transform>(closest_player);
+		const auto dist = pos - p_t.pos;
+		const auto closest_dist = pos - closest_p_t.pos;
 		if (mag(dist) < mag(closest_dist)) {
 			closest_player = p;
 		}
@@ -129,8 +90,8 @@ int main(int argc, char* argv[]) {
 	audio.load(".ogg");
 
 	auto danmaku_spr = texture.sprite("danmaku");
-	danmaku_spr.setOrigin({ 68.f, 63.5f });
-	danmaku_spr.setColor(sf::Color::Red);
+	danmaku_spr.origin += { 4.f, -0.5f };
+	danmaku_spr.color = sf::Color::Red;
 
 	sf::Shader danmaku_shdr{};
 	danmaku_shdr.loadFromFile("res/shaders/danmaku.frag", sf::Shader::Type::Fragment);
@@ -175,12 +136,14 @@ int main(int argc, char* argv[]) {
 
 	mut_ecs.emplace<gillwing>(gillwing_e);
 
-	sf::Sprite gillwing_spr{ texture.sprite("gillwing") };
-	gillwing_spr.setOrigin({ 750.f, 300.f });
+	auto gillwing_spr = texture.sprite("gillwing");
+	gillwing_spr.origin = { 750.f, 300.f };
 	constexpr float gillwing_scale{ 0.25f };
-	gillwing_spr.setScale({ gillwing_scale, gillwing_scale });
-	gillwing_spr.setPosition({ -500.f, -150.f });
-	mut_ecs.emplace<sf::Sprite>(gillwing_e, gillwing_spr);
+	gillwing_spr.size *= gillwing_scale;
+	mut_ecs.emplace<sprite>(gillwing_e, gillwing_spr);
+	const transform gillwing_transform{ { -500.f, -150.f } };
+	mut_ecs.emplace<transform>(gillwing_e, gillwing_transform);
+	mut_ecs.emplace<prev<transform>>(gillwing_e, gillwing_transform);
 
 	mut_ecs.emplace<velocity>(gillwing_e);
 	mut_ecs.emplace<rotate_towards_velocity>(gillwing_e, true);
@@ -215,14 +178,17 @@ int main(int argc, char* argv[]) {
 		imgui_ui->size = { 192.f, gameplay_view.getSize().y };
 		imgui_ui->draw_fn = [&](sf::RenderTarget& target) {
 			auto logo_sprite = texture.sprite("logo");
-			const auto& sprite_size = logo_sprite.getTexture()->getSize();
+			const auto& sprite_size = logo_sprite.texture->getSize();
 			const auto scale_down = imgui_ui->size.x / sprite_size.x;
-			logo_sprite.scale({ scale_down, scale_down });
-			logo_sprite.setPosition({
-				0.f,
-				imgui_ui->size.y / 2.f - scale_down * sprite_size.y / 2.f
-			});
-			target.draw(logo_sprite);
+			const transform logo_trans{
+				{
+					0.f,
+					imgui_ui->size.y / 2.f - scale_down * sprite_size.y / 2.f
+				},
+				{},
+				{ scale_down, scale_down }
+			};
+			target.draw(logo_sprite.get_sprite(logo_trans));
 			// the rest of the ui is drawn by imgui
 		};
 		auto imgui_margin_ui = std::make_unique<margin_ui>();
@@ -256,6 +222,8 @@ int main(int argc, char* argv[]) {
 	};
 	resized_window();
 
+	previous_system<transform> prev_system{ mut_ecs };
+
 	while (window.isOpen()) {
 		sf::Event event {};
 		while (window.pollEvent(event)) {
@@ -276,11 +244,13 @@ int main(int argc, char* argv[]) {
 		elapsed += var_dt;
 
 		accumulator += var_dt;
-		constexpr float dt = 1.f / 20.f;
-		if (accumulator > dt) {
+		constexpr float dt{ 1.f / 60.f };
+;		if (accumulator > dt) {
 			accumulator = std::fmod(accumulator, dt);
 
 			// FIXED TIMESTEP
+			prev_system.update_previous();
+
 			audio.update();
 
 			// - face towards input
@@ -361,7 +331,7 @@ int main(int argc, char* argv[]) {
 			}
 
 			// gillwing
-			for (const auto& [e, vel, spr, gw] : ecs.view<velocity, sf::Sprite, gillwing>().each()) {
+			for (const auto& [e, vel, t, gw] : ecs.view<velocity, transform, gillwing>().each()) {
 				//// get closest player
 				//const auto closest_player = get_closest_player(ecs, spr.getPosition());
 				//if (closest_player == entt::null) {
@@ -384,12 +354,12 @@ int main(int argc, char* argv[]) {
 				// change direction if on edge of view
 				mut_ecs.patch<gillwing>(e, [&](gillwing& gw) {
 					if (gw.heading_right) {
-						if (spr.getPosition().x > gameplay_view.getSize().x / 2.f) {
+						if (t.pos.x > gameplay_view.getSize().x / 2.f) {
 							gw.heading_right = false;
 						}
 					}
 					else {
-						if (spr.getPosition().x < -gameplay_view.getSize().x / 2.f) {
+						if (t.pos.x < -gameplay_view.getSize().x / 2.f) {
 							gw.heading_right = true;
 						}
 					}
@@ -423,12 +393,12 @@ int main(int argc, char* argv[]) {
 						};
 						std::uniform_int_distribution blue_dist{ 0, 255 };
 						const velocity danmaku_vel{
-							velocity{ dist(rng), dist(rng) }
+							dist(rng), dist(rng)
 						};
 						const sf::Color danmaku_col{
 							0, 255, static_cast<std::uint8_t>(blue_dist(rng))
 						};
-						const auto danmaku = create_danmaku(mut_ecs, danmaku_shdr, danmaku_spr, spr.getPosition(), danmaku_vel, danmaku_col);
+						const auto danmaku = create_danmaku(mut_ecs, danmaku_shdr, danmaku_spr, t.pos, danmaku_vel, danmaku_col);
 						mut_ecs.emplace<gravity>(danmaku);
 					}
 				});
@@ -443,19 +413,19 @@ int main(int argc, char* argv[]) {
 			}
 
 			// apply velocity to sprite's position
-			for (const auto& [e, _, vel] : ecs.view<sf::Sprite, velocity>().each()) {
-				mut_ecs.patch<sf::Sprite>(e, [&](sf::Sprite& spr) {
-					spr.move(dt * vel);
+			for (const auto& [e, _, vel] : ecs.view<transform, velocity>().each()) {
+				mut_ecs.patch<transform>(e, [&](transform& t) {
+					t.pos += dt * vel;
 				});
 			}
 
 			// clamp player in bounds by sliding/bouncing off walls,
 			// recalculating their position, and often their velocity and facing
 			for (
-				const auto& [e, hit, spr, vel, facing, player] :
-				ecs.view<hitbox, sf::Sprite, velocity, facing, player>().each()
+				const auto& [e, hit, t, vel, facing, player] :
+				ecs.view<hitbox, transform, velocity, facing, player>().each()
 			) {
-				auto pos = spr.getPosition();
+				auto pos = t.pos;
 
 				const auto boost = player.input.boost();
 				const auto movement = player.input.movement() != sf::Vector2f{};
@@ -532,8 +502,8 @@ int main(int argc, char* argv[]) {
 				if (!oob) {
 					continue;
 				}
-				mut_ecs.patch<sf::Sprite>(e, [&](sf::Sprite& spr) {
-					spr.setPosition(pos);
+				mut_ecs.patch<transform>(e, [&](transform& t) {
+					t.pos = pos;
 				});
 				// movement flag needed else nights will lie flat on the ground
 				if (boost || movement) {
@@ -543,39 +513,33 @@ int main(int argc, char* argv[]) {
 			}
 
 			// erase any danmaku that are off-screen
-			for (const auto& [e, spr] : ecs.view<danmaku, sf::Sprite>().each()) {
-				const auto& pos = spr.getPosition();
-				const auto& spr_size = spr.getScale();
-				const auto tex_size =
-					static_cast<sf::Vector2f>(spr.getTexture()->getSize());
+			for (const auto& [e, t, spr] : ecs.view<danmaku, transform, sprite>().each()) {
 				const sf::Vector2f size{
-					spr_size.x * tex_size.x, spr_size.y * tex_size.y
+					t.scale.x * spr.size.x, t.scale.y * spr.size.y
 				};
 				const auto& view_pos = gameplay_view.getCenter();
 				const auto& view_size = gameplay_view.getSize();
 				if (
-					pos.x + size.x < view_pos.x - view_size.x / 2.f
-					|| pos.x - size.x > view_pos.x + view_size.x / 2.f
-					|| pos.y + size.y < view_pos.y - view_size.y / 2.f
-					|| pos.y - size.y > view_pos.y + view_size.y / 2.f
+					t.pos.x + size.x < view_pos.x - view_size.x / 2.f
+					|| t.pos.x - size.x > view_pos.x + view_size.x / 2.f
+					|| t.pos.y + size.y < view_pos.y - view_size.y / 2.f
+					|| t.pos.y - size.y > view_pos.y + view_size.y / 2.f
 				) {
 					mut_ecs.destroy(e);
 				}
 			}
 
 			// check for collisions between painful hitboxes and players
-			for (const auto& [d_e, d_spr, d_hit] : ecs.view<painful, sf::Sprite, hitbox>().each()) {
+			for (const auto& [d_e, d_t, d_hit] : ecs.view<painful, transform, hitbox>().each()) {
 				// player loop is inner so they can't collide twice in one frame
-				for (const auto& [p_e, p_p, p_spr, p_hit] : ecs.view<player, sf::Sprite, hitbox>().each()) {
+				for (const auto& [p_e, p_p, p_t, p_hit] : ecs.view<player, transform, hitbox>().each()) {
 					constexpr float invuln_time = 1.f;
 					// if player is invuln
 					if (p_p.last_hit + invuln_time > elapsed) {
 						continue;
 					}
 					// compare radius of hitboxes alongside position from sprite
-					const auto& d_pos = d_spr.getPosition();
-					const auto& p_pos = p_spr.getPosition();
-					const auto dist = mag(d_pos - p_pos);
+					const auto dist = mag(d_t.pos - p_t.pos);
 					if (dist < d_hit.radius + p_hit.radius) {
 						// collision detected, damage player (reduce ideya)
 						mut_ecs.patch<player>(p_e, [&](player& p) {
@@ -598,20 +562,21 @@ int main(int argc, char* argv[]) {
 			}
 
 			// set player sprite's direction to entity's direction
-			for (const auto& [e, player, facing, _] : ecs.view<player, facing, sf::Sprite>().each()) {
-				mut_ecs.patch<sf::Sprite>(e, [&](sf::Sprite& spr) {
-					spr.setRotation(facing.angle.deg());
+			for (const auto& [e, player, facing, t] : ecs.view<player, facing, transform>().each()) {
+				mut_ecs.patch<transform>(e, [&](transform& t) {
+					// todo: is facing.angle needed now that transform is seperate from sprite?
+					t.rot = facing.angle;
 				});
 			}
 
 			// "flip" sprite if boosting
-			for (const auto& [e, player, _] : ecs.view<player, sf::Sprite>().each()) {
-				mut_ecs.patch<sf::Sprite>(e, [&](sf::Sprite& spr) {
+			for (const auto& [e, player, _] : ecs.view<player, transform>().each()) {
+				mut_ecs.patch<transform>(e, [&](transform& t) {
 					if (player.input.boost()) {
-						spr.setScale({ 1.f, sin(elapsed * 32.f) });
+						t.scale = { 1.f, sin(elapsed * 32.f) };
 					}
 					else {
-						spr.setScale({ 1.f, 1.f });
+						t.scale = { 1.f, 1.f };
 					}
 				});
 			}
@@ -619,18 +584,27 @@ int main(int argc, char* argv[]) {
 			// rotate sprite to match velocity
 			for (
 				const auto& [e, rtv, vel, _] :
-				ecs.view<rotate_towards_velocity, velocity, sf::Sprite>().each()
-				) {
-				mut_ecs.patch<sf::Sprite>(e, [&](sf::Sprite& spr) {
-					const auto deg = fmod_pos(angle::from_vec(vel).deg(), 360.f);
-					spr.setRotation(deg);
+				ecs.view<rotate_towards_velocity, velocity, transform>().each()
+			) {
+				mut_ecs.patch<transform>(e, [&](transform& t) {
+					t.rot = angle::from_vec(static_cast<sf::Vector2f>(vel)).normalize();
 					if (rtv.flip) {
-						const auto scale = spr.getScale();
-						if (deg > 90.f && deg <= 270.f) {
-							spr.setScale({ scale.x, -std::abs(scale.y) });
+						if (
+							t.rot > angle::deg(90.f)
+							|| t.rot <= angle::deg(-90.f)
+						) {
+							if (t.scale.y > 0.f) {
+								t.scale.y = -std::abs(t.scale.y);
+								// snap
+								mut_ecs.replace<prev<transform>>(e, t);
+							}
 						}
 						else {
-							spr.setScale({ scale.x, std::abs(scale.y) });
+							if (t.scale.y < 0.f) {
+								t.scale.y = std::abs(t.scale.y);
+								// snap
+								mut_ecs.replace<prev<transform>>(e, t);
+							}
 						}
 					}
 				});
@@ -645,6 +619,7 @@ int main(int argc, char* argv[]) {
 		}
 
 		// VARIABLE TIMESTEP
+		const float alpha{ accumulator / dt };
 
 		danmaku_shdr.setUniform("time_elapsed", elapsed);
 
@@ -682,29 +657,33 @@ int main(int argc, char* argv[]) {
 			target.draw(bg);
 
 			// render sprites
-			for (const auto& [e, spr] : ecs.view<sf::Sprite>().each()) {
+			for (const auto& [e, _, spr] : ecs.view<transform, sprite>().each()) {
+				const auto t = prev_system.try_lerp<transform>(e, alpha);
+
 				if (const auto shdr = ecs.try_get<sf::Shader*>(e)) {
 					if (const auto dis = ecs.try_get<disintegrate>(e)) {
 						mut_ecs.patch<sf::Shader*>(e, [&](sf::Shader* shdr) {
 							shdr->setUniform("disintegration", elapsed - dis->begin);
 						});
 					}
-					target.draw(spr, *shdr);
+					target.draw(spr.get_sprite(t), *shdr);
 				}
 				else {
-					target.draw(spr);
+					target.draw(spr.get_sprite(t));
 				}
 			}
 
 			// render player ideya
-			for (const auto& [_, spr, player, hit] : ecs.view<sf::Sprite, player, hitbox>().each()) {
+			// todo: fix
+			for (const auto& [e, _, player, hit] : ecs.view<transform, player, hitbox>().each()) {
+				const auto t = prev_system.try_lerp<transform>(e, alpha);
 				// draw hitbox ideya
 				auto ideya_spr = texture.sprite("ideya");
-				ideya_spr.setColor(sf::Color{ 0xFF3F3FFF });
-				const auto& ideya_scale = 2.f * hit.radius / ideya_spr.getTexture()->getSize().x;
-				ideya_spr.setScale({ ideya_scale, ideya_scale });
-				ideya_spr.setPosition(spr.getPosition());
-				target.draw(ideya_spr, &ideya_shdr);
+				ideya_spr.color = sf::Color{ 0xFF3F3FFF };
+				const float ideya_size{ 2.f * hit.radius };
+				ideya_spr.size = { ideya_size, ideya_size };
+				transform ideya_trans{ t.pos };
+				target.draw(ideya_spr.get_sprite(ideya_trans), &ideya_shdr);
 
 				// draw orbitting ideya
 				const std::array<sf::Color, 4> orbit_colors{
@@ -717,25 +696,23 @@ int main(int argc, char* argv[]) {
 				const auto orbit_speed = 120.f;
 				const auto orbit_init = elapsed * orbit_speed;
 				for (std::size_t ideya_idx{ 0 }; ideya_idx < player.ideya - 1; ++ideya_idx) {
-					ideya_spr.setColor(orbit_colors[ideya_idx]);
+					ideya_spr.color = orbit_colors[ideya_idx];
 					// use lerp
 					const auto orbit_angle = angle::deg(
 						orbit_init + 360.f * ideya_idx / (player.ideya - 1)
 					);
-					ideya_spr.setPosition(
-						spr.getPosition() +
-						orbit_radius * orbit_angle.vec()
-					);
-					target.draw(ideya_spr, &ideya_shdr);
+					ideya_trans.pos = t.pos + orbit_radius * orbit_angle.vec();
+					target.draw(ideya_spr.get_sprite(ideya_trans), &ideya_shdr);
 				}
 			}
 
 			// render hitboxes
+			// (not lerped, because then it is less accurate?)
 			if (debug_visible_hitboxes) {
-				for (const auto& [e, spr, hit] : ecs.view<sf::Sprite, hitbox>().each()) {
+				for (const auto& [e, t, hit] : ecs.view<transform, hitbox>().each()) {
 					sf::CircleShape circle{ hit.radius };
 					circle.setOrigin({ hit.radius, hit.radius });
-					circle.setPosition(spr.getPosition());
+					circle.setPosition(t.pos);
 					circle.setFillColor(
 						ecs.any_of<painful>(e) ? sf::Color::Red : sf::Color::Cyan
 					);
