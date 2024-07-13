@@ -1,0 +1,31 @@
+v0.3
+---
++ analog precision (can now move below default speed)
+  + digital diagonal normalisation (do not move above default speed diagonally)
++ dpad input to default gamepad input
+
+v0.3.1
+---
+~ changed name from NiGHTS Fangame to NiGHTS: Dreams of Danmaku
+
+v0.4
+---
++ dear-imgui for gui
++ player clamp
++ gillwing hitbox
++ visible hitbox (toggleable)
+~ fix division by zero when inputing on the first frame of gameplay (when velocity is 0)
++ resource managers for audio and textures
++ ui, seperating gameplay ui and debug dear-imgui ui
++ funny scream button
+
+v0.5
+---
+- c++ modules (too buggy for now)
++ fixed timestep with interpolation
++ seperate sf::Sprite into sprite and transform
+
+v0.5.1
+---
++ paralooping detection
++ paralooping of danmaku

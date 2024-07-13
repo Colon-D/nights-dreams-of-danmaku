@@ -19,6 +19,12 @@
 #include "resource/audio.h"
 #include "resource/texture.h"
 #include "constants.h"
+#include "danmaku.h"
+#include "bosses/boss.h"
+#include "bosses/gillwing.h"
+#include "services.h"
+#include "player.h"
+#include <format>
 
 entt::entity create_player(entt::registry& ecs, const sf::Vector2f& pos, const player& player, const sprite& spr) {
 	const auto player_e = ecs.create();
@@ -33,48 +39,9 @@ entt::entity create_player(entt::registry& ecs, const sf::Vector2f& pos, const p
 
 	ecs.emplace<hitbox>(player_e, 5.f);
 
+	ecs.emplace<position_history>(player_e, player::max_paraloop_points);
+
 	return player_e;
-}
-
-entt::entity create_danmaku(entt::registry& ecs, sf::Shader& shdr, sprite spr, const sf::Vector2f& pos, const velocity& vel, const sf::Color& col) {
-	const auto e = ecs.create();
-	ecs.emplace<danmaku>(e);
-	ecs.emplace<rotate_towards_velocity>(e);
-
-	spr.color = col;
-	ecs.emplace<sprite>(e, spr);
-	const transform trans{ pos };
-	ecs.emplace<transform>(e, trans);
-	ecs.emplace<prev<transform>>(e, trans);
-
-	ecs.emplace<velocity>(e, vel);
-
-	ecs.emplace<sf::Shader*>(e, &shdr);
-
-	ecs.emplace<hitbox>(e, 5.f);
-	ecs.emplace<painful>(e);
-
-	return e;
-}
-
-// get closest player
-entt::entity get_closest_player(
-	const entt::registry& ecs, const sf::Vector2f& pos
-) {
-	entt::entity closest_player{ entt::null };
-	for (const auto& [p, p_t, _] : ecs.view<transform, player>().each()) {
-		if (closest_player == entt::null) {
-			closest_player = p;
-			continue;
-		}
-		const auto& closest_p_t = ecs.get<transform>(closest_player);
-		const auto dist = pos - p_t.pos;
-		const auto closest_dist = pos - closest_p_t.pos;
-		if (mag(dist) < mag(closest_dist)) {
-			closest_player = p;
-		}
-	}
-	return closest_player;
 }
 
 int main(int argc, char* argv[]) {
@@ -84,27 +51,20 @@ int main(int argc, char* argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	texture texture{};
-	texture.load(".png");
+	serv = std::make_unique<services>();
 
-	audio audio{};
-	audio.load(".ogg");
-
-	auto danmaku_spr = texture.sprite("danmaku");
+	auto danmaku_spr = serv->texture.sprite("danmaku");
 	danmaku_spr.origin += { 4.f, -0.5f };
 	danmaku_spr.color = sf::Color::Red;
 
-	sf::Shader danmaku_shdr{};
-	danmaku_shdr.loadFromFile("res/shaders/danmaku.frag", sf::Shader::Type::Fragment);
-	sf::Shader disintegrate_shdr{};
-	disintegrate_shdr.loadFromFile("res/shaders/disintegrate.frag", sf::Shader::Type::Fragment);
-	sf::Shader ideya_shdr{};
-	ideya_shdr.loadFromFile("res/shaders/ideya.frag", sf::Shader::Type::Fragment);
+	scene_services scn{};
 
-	std::default_random_engine rng{ std::random_device{}() };
+	sf::RenderWindow window{ { 1024, 720 }, "NiGHTS: Dreams of Danmaku" };
+	sf::View gameplay_view{ {}, gameplay_size };
 
-	sf::RenderWindow window{ { 1280, 720 }, "NiGHTS: Dreams of Danmaku" };
-	sf::View gameplay_view{ {}, { 640.f, 480.f } };
+	std::size_t fps_counter{};
+	std::size_t fps_display{};
+	float last_fps_display{ 1.f };
 
 	ImGui::SFML::Init(window);
 	auto& imgui_io = ImGui::GetIO();
@@ -126,31 +86,13 @@ int main(int argc, char* argv[]) {
 
 	const auto imgui_style = ImGui::GetStyle();
 
-	entt::registry mut_ecs{};
-	const entt::registry& ecs = mut_ecs;
+	auto& mut_ecs = scn.registry;
+	const auto& ecs = mut_ecs;
 
-	create_player(mut_ecs, { -100.f, 0.f }, { input::default_keyboard }, texture.sprite("nights"));
-	create_player(mut_ecs, {  100.f, 0.f }, { input::default_gamepad() }, texture.sprite("reala"));
+	create_player(mut_ecs, { -100.f, 0.f }, { input::default_keyboard }, serv->texture.sprite("nights"));
+	create_player(mut_ecs, {  100.f, 0.f }, { input::default_gamepad() }, serv->texture.sprite("reala"));
 
-	// create gillwing
-	const auto gillwing_e = mut_ecs.create();
-
-	mut_ecs.emplace<gillwing>(gillwing_e);
-
-	auto gillwing_spr = texture.sprite("gillwing");
-	gillwing_spr.origin = { 750.f, 300.f };
-	constexpr float gillwing_scale{ 0.25f };
-	gillwing_spr.size *= gillwing_scale;
-	mut_ecs.emplace<sprite>(gillwing_e, gillwing_spr);
-	const transform gillwing_transform{ { -500.f, -150.f } };
-	mut_ecs.emplace<transform>(gillwing_e, gillwing_transform);
-	mut_ecs.emplace<prev<transform>>(gillwing_e, gillwing_transform);
-
-	mut_ecs.emplace<velocity>(gillwing_e);
-	mut_ecs.emplace<rotate_towards_velocity>(gillwing_e, true);
-
-	mut_ecs.emplace<hitbox>(gillwing_e, 52.f);
-	mut_ecs.emplace<painful>(gillwing_e);
+	create_gillwing(mut_ecs);
 
 	sf::Clock clock{};
 	float accumulator{ 0.f };
@@ -178,7 +120,7 @@ int main(int argc, char* argv[]) {
 		imgui_ui = imgui_ui_owned.get();
 		imgui_ui->size = { 192.f, gameplay_view.getSize().y };
 		imgui_ui->draw_fn = [&](sf::RenderTarget& target) {
-			auto logo_sprite = texture.sprite("logo");
+			auto logo_sprite = serv->texture.sprite("logo");
 			const auto& sprite_size = logo_sprite.texture->getSize();
 			const auto scale_down = imgui_ui->size.x / sprite_size.x;
 			const transform logo_trans{
@@ -201,7 +143,6 @@ int main(int argc, char* argv[]) {
 		row_ui->children.push_back(std::move(imgui_margin_ui));
 
 		ui.child = std::move(row_ui);
-
 	}
 
 	const auto resized_window = [&]() {
@@ -244,6 +185,14 @@ int main(int argc, char* argv[]) {
 		const auto var_dt = dt_time.asSeconds();
 		elapsed += var_dt;
 
+		++fps_counter;
+		last_fps_display -= var_dt;
+		if (last_fps_display < 0.f) {
+			last_fps_display = 1.f;
+			fps_display = fps_counter;
+			fps_counter = 0;
+		}
+
 		accumulator += var_dt;
 		constexpr float dt{ fixed_timestep };
 ;		if (accumulator > dt) {
@@ -252,7 +201,14 @@ int main(int argc, char* argv[]) {
 			// FIXED TIMESTEP
 			prev_system.update_previous();
 
-			audio.update();
+			// update position history
+			for (const auto& [e, t, _] : ecs.view<transform, position_history>().each()) {
+				mut_ecs.patch<position_history>(e, [&](position_history& ph) {
+					ph.push(t.pos);
+				});
+			}
+
+			serv->audio.update();
 
 			// - face towards input
 			for (const auto& [e, _, player] : ecs.view<facing, player>().each()) {
@@ -326,84 +282,14 @@ int main(int argc, char* argv[]) {
 						constexpr float terminal_velocity{ 12.f };
 						if (vel.y < terminal_velocity) {
 							vel.y = std::min(vel.y + gravity * dt, terminal_velocity);
+							std::cout << acceleration << '\n';
+							std::cout << vel.y << '\n';
 						}
 					}
 				});
 			}
 
-			// gillwing
-			for (const auto& [e, vel, t, gw] : ecs.view<velocity, transform, gillwing>().each()) {
-				//// get closest player
-				//const auto closest_player = get_closest_player(ecs, spr.getPosition());
-				//if (closest_player == entt::null) {
-				//	continue;
-				//}
-				//const auto& target_pos =
-				//	ecs.get<sf::Sprite>(closest_player).getPosition();
-
-				//// rotate velocity towards closest player
-				//mut_ecs.patch<velocity>(e, [&](velocity& vel) {
-				//	constexpr float speed{ 150.f };
-				//	constexpr auto rot_vel = angle::deg(90.f);
-				//	const auto target_angle =
-				//		angle::from_vec(target_pos - spr.getPosition());
-				//	auto angle = angle::from_vec(vel);
-				//	angle = angle.rotate_towards(target_angle, rot_vel * dt);
-				//	vel = speed * angle.vec();
-				//});
-
-				// change direction if on edge of view
-				mut_ecs.patch<gillwing>(e, [&](gillwing& gw) {
-					if (gw.heading_right) {
-						if (t.pos.x > gameplay_view.getSize().x / 2.f) {
-							gw.heading_right = false;
-						}
-					}
-					else {
-						if (t.pos.x < -gameplay_view.getSize().x / 2.f) {
-							gw.heading_right = true;
-						}
-					}
-				});
-
-				// move in a sine wave pattern across the screen
-				mut_ecs.patch<velocity>(e, [&](velocity& vel) {
-					float horizontal_speed{ 200.f };
-					constexpr float amplitude{ 50.f };
-					constexpr float frequency{ 2.f };
-					if (!gw.heading_right) {
-						horizontal_speed = -horizontal_speed;
-					}
-					vel = sf::Vector2f{
-						horizontal_speed,
-						amplitude * std::cos(elapsed * frequency),
-					};
-				});
-
-				// reduce gillwing timer and spawn danmaku
-				mut_ecs.patch<gillwing>(e, [&](gillwing& gillwing) {
-					constexpr float frequency{ 0.1f };
-					gillwing.timer -= dt;
-					if (gillwing.timer <= 0.f) {
-						gillwing.timer += frequency;
-
-						// shoot danmaku out in a random direction
-						constexpr float square_radius{ 100.f };
-						std::uniform_real_distribution dist{
-							-square_radius, square_radius
-						};
-						std::uniform_int_distribution blue_dist{ 0, 255 };
-						const velocity danmaku_vel{
-							dist(rng), dist(rng)
-						};
-						const sf::Color danmaku_col{
-							0, 255, static_cast<std::uint8_t>(blue_dist(rng))
-						};
-						const auto danmaku = create_danmaku(mut_ecs, danmaku_shdr, danmaku_spr, t.pos, danmaku_vel, danmaku_col);
-						mut_ecs.emplace<gravity>(danmaku);
-					}
-				});
-			}
+			attack_system::update_sigh.publish(scn);
 
 			// apply standard gravity to entities
 			for (const auto& [e, _] : ecs.view<gravity, velocity>().each()) {
@@ -413,12 +299,22 @@ int main(int argc, char* argv[]) {
 				});
 			}
 
+			// apply acceleration to entities
+			for (const auto& [e, accel, _] : ecs.view<acceleration, velocity>().each()) {
+				mut_ecs.patch<velocity>(e, [&](velocity& vel) {
+					vel += dt * accel.val;
+				});
+			}
+
 			// apply velocity to sprite's position
 			for (const auto& [e, _, vel] : ecs.view<transform, velocity>().each()) {
 				mut_ecs.patch<transform>(e, [&](transform& t) {
 					t.pos += dt * vel;
 				});
 			}
+
+			// update gillwing's segments
+			gillwing_update(scn);
 
 			// clamp player in bounds by sliding/bouncing off walls,
 			// recalculating their position, and often their velocity and facing
@@ -530,51 +426,47 @@ int main(int argc, char* argv[]) {
 				}
 			}
 
-
 			// update player's paraloop points
-			for (const auto& [e, _, t] : ecs.view<player, transform>().each()) {
-				mut_ecs.patch<player>(e, [&](player& p) {
-					// add point to paraloop_points
-					// - if too big, move all points back one then remove back
-					if (p.paraloop_points.size() >= p.max_paraloop_points) {
-						std::rotate(
-							p.paraloop_points.begin(),
-							p.paraloop_points.begin() + 1,
-							p.paraloop_points.end()
-						);
-						p.paraloop_points.pop_back();
-					}
-					p.paraloop_points.push_back(t.pos);
-
-					// check to see if line formed by last two points intersects any other two points
-					if (p.paraloop_points.size() > 5) {
-						line end{ p.paraloop_points[p.paraloop_points.size() - 2], p.paraloop_points.back() };
-						for (std::size_t i{ 0 }; i < p.paraloop_points.size() - 4; ++i) {
-							line other{ p.paraloop_points[i], p.paraloop_points[i + 1] };
-							if (intersects(other, end)) {
-								// PARALOOP OCCURED
-								const auto paraloop_begin = p.paraloop_points.begin() + i;
-								const auto paraloop_end = p.paraloop_points.end();
-								std::vector<sf::Vector2f> paraloop{ paraloop_begin, paraloop_end };
-
-								// find all danmaku inside the paraloop and destroy them
-								for (const auto& [d_e, d_t] : ecs.view<danmaku, transform>().each()) {
-									if (intersects(d_t.pos, paraloop)) {
-										mut_ecs.destroy(d_e);
-									}
-								}
-
-								// clear paraloop points
-								p.paraloop_points.clear();
-
-								break;
+			for (const auto& [e, _, t, ph] : ecs.view<player, transform, position_history>().each()) {
+				// check to see if line formed by last two points intersects any other two points
+				if (ph.size() > 5) {
+					line end{ ph[ph.size() - 2], ph.back() };
+					for (std::size_t i{ 0 }; i < ph.size() - 4; ++i) {
+						line other{ ph[i], ph[i + 1] };
+						if (intersects(other, end)) {
+							// PARALOOP OCCURED
+							std::vector<sf::Vector2f> paraloop{};
+							paraloop.resize(ph.size() - i);
+							for (std::size_t j{ 0 }; j < paraloop.size(); ++j) {
+								paraloop[j] = ph[i + j];
 							}
+
+							// find all danmaku inside the paraloop and destroy them,
+							// also damage the boss
+							float damage{};
+							for (const auto& [d_e, d_t] : ecs.view<danmaku, transform>().each()) {
+								if (intersects(d_t.pos, paraloop)) {
+									damage += 1.f;
+									mut_ecs.destroy(d_e);
+								}
+							}
+							for (const auto b_e : ecs.view<boss>()) {
+								mut_ecs.patch<boss>(b_e, [&](boss& boss) {
+									boss.set_health({ mut_ecs, b_e }, boss.get_health() - damage);
+								});
+							}
+
+							// clear position history
+							// (hopefully this won't break anything if I need player's position history later)
+							mut_ecs.patch<position_history>(e, [&](position_history& ph) {
+								ph.clear();
+							});
+
+							break;
 						}
 					}
-				});
+				}
 			}
-
-
 
 			// check for collisions between painful hitboxes and players
 			for (const auto& [d_e, d_t, d_hit] : ecs.view<painful, transform, hitbox>().each()) {
@@ -594,13 +486,13 @@ int main(int argc, char* argv[]) {
 							// if no more ideya (dead)
 							if (p.ideya <= 0) {
 								mut_ecs.emplace<disintegrate>(p_e, elapsed);
-								mut_ecs.emplace<sf::Shader*>(p_e, &disintegrate_shdr);
+								mut_ecs.emplace<sf::Shader*>(p_e, serv->shaders.map.at("disintegrate").get());
 								mut_ecs.remove<hitbox>(p_e);
 								p.input = {};
-								audio.play("scream");
+								serv->audio.play("scream");
 							}
 							else {
-								audio.play("hurt");
+								serv->audio.play("hurt");
 								p.last_hit = elapsed;
 							}
 						});
@@ -668,7 +560,7 @@ int main(int argc, char* argv[]) {
 		// VARIABLE TIMESTEP
 		const float alpha{ accumulator / dt };
 
-		danmaku_shdr.setUniform("time_elapsed", elapsed);
+		serv->shaders.map.at("danmaku")->setUniform("time_elapsed", elapsed);
 
 		if (ImGui::Begin(
 			"debug",
@@ -681,10 +573,38 @@ int main(int argc, char* argv[]) {
 			ImGui::SetWindowPos(imgui_ui->viewport_area.getPosition());
 			ImGui::SetWindowSize(imgui_ui->viewport_area.getSize());
 
+			ImGui::Text("FPS: %d", fps_display);
+
 			ImGui::Checkbox("visible hitboxes", &debug_visible_hitboxes);
 			if (ImGui::Button("funny scream")) {
-				audio.play("scream");
+				serv->audio.play("scream");
 			}
+			for (const auto& [e, b] : ecs.view<boss>().each()) {
+				ImGui::Text("Boss(e: %d) Health: %d", e, static_cast<int>(b.get_health()));
+				if (ImGui::Button(std::format("Damage Boss(e: {}) by 32", static_cast<int>(e)).c_str())) {
+					mut_ecs.patch<boss>(e, [&](boss& b) {
+						b.set_health({ mut_ecs, e }, b.get_health() - 32.f);
+					});
+				}
+			}
+
+			ImGui::SliderFloat("Difficulty", &diff, 0.25f, 2.f);
+			if (ImGui::Button("Easy")) {
+				diff = 0.5f;
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Normal")) {
+				diff = 1.f;
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Hard")) {
+				diff = 1.5f;
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Lunatic")) {
+				diff = 2.f;
+			}
+
 			ImGui::End();
 		}
 
@@ -725,12 +645,12 @@ int main(int argc, char* argv[]) {
 			for (const auto& [e, _, player, hit] : ecs.view<transform, player, hitbox>().each()) {
 				const auto t = prev_system.try_lerp<transform>(e, alpha);
 				// draw hitbox ideya
-				auto ideya_spr = texture.sprite("ideya");
+				auto ideya_spr = serv->texture.sprite("ideya");
 				ideya_spr.color = sf::Color{ 0xFF3F3FFF };
 				const float ideya_size{ 2.f * hit.radius };
 				ideya_spr.size = { ideya_size, ideya_size };
 				transform ideya_trans{ t.pos };
-				target.draw(ideya_spr.get_sprite(ideya_trans), &ideya_shdr);
+				target.draw(ideya_spr.get_sprite(ideya_trans), serv->shaders.map.at("ideya").get());
 
 				// draw orbitting ideya
 				const std::array<sf::Color, 4> orbit_colors{
@@ -749,7 +669,7 @@ int main(int argc, char* argv[]) {
 						orbit_init + 360.f * ideya_idx / (player.ideya - 1)
 					);
 					ideya_trans.pos = t.pos + orbit_radius * orbit_angle.vec();
-					target.draw(ideya_spr.get_sprite(ideya_trans), &ideya_shdr);
+					target.draw(ideya_spr.get_sprite(ideya_trans), serv->shaders.map.at("ideya").get());
 				}
 			}
 
@@ -768,11 +688,11 @@ int main(int argc, char* argv[]) {
 			}
 
 			// render player's paraloop lines (debugging)
-			for (const auto& [e, p] : ecs.view<player>().each()) {
+			for (const auto& [e, _, ph] : ecs.view<player, position_history>().each()) {
 				sf::VertexArray va{ sf::PrimitiveType::LineStrip };
-				va.resize(p.paraloop_points.size());
-				for (std::size_t i{ 0 }; i < p.paraloop_points.size(); ++i) {
-					va[i].position = p.paraloop_points[i];
+				va.resize(ph.size());
+				for (std::size_t i{ 0 }; i < ph.size(); ++i) {
+					va[i].position = ph[i];
 				}
 				target.draw(va);
 			}

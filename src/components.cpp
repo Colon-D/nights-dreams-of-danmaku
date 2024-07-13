@@ -28,3 +28,55 @@ transform lerp(const transform& a, const transform& b, const float ratio) {
 		lerp(a.scale, b.scale, ratio)
 	};
 }
+
+position_history::position_history(const std::size_t max_size) {
+	history.resize(max_size);
+}
+
+void position_history::push(const sf::Vector2f& pos) {
+	if (length < history.size()) {
+		++length;
+	}
+	else {
+		begin = (begin + 1) % history.size();
+	}
+	const std::size_t end{ (begin + length - 1) % history.size() };
+	history[end] = pos;
+}
+
+sf::Vector2f position_history::pop() {
+	assert(length > 0);
+	const std::size_t end{ (begin + length - 1) % history.size() };
+	const sf::Vector2f value{ history[end] };
+	--length;
+	return value;
+}
+
+sf::Vector2f& position_history::operator[](const std::size_t index) {
+	assert(index < length);
+	return history[(begin + index) % history.size()];
+}
+
+const sf::Vector2f& position_history::operator[](
+	const std::size_t index
+) const {
+	assert(index < length);
+	return history[(begin + index) % history.size()];
+}
+
+std::size_t position_history::size() const {
+	return length;
+}
+
+sf::Vector2f position_history::front() const {
+	return (*this)[0];
+}
+
+sf::Vector2f position_history::back() const {
+	return (*this)[length - 1];
+}
+
+void position_history::clear() {
+	begin = 0;
+	length = 0;
+}

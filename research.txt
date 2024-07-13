@@ -1,0 +1,3 @@
+Fish boss:
+  Bubbles force you to Swim through them, sets direction to normal and forces velocity
+  NiGHTS feels the same underwater...

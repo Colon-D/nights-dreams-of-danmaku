@@ -14,8 +14,17 @@ add_executable("${PROJECT_NAME}"
 	"src/math_utils.cpp"
 	"src/components.cpp"
 	"src/prev.cpp"
+	"src/attacks/attack.cpp"
+	"src/attacks/gillwing/wave.cpp"
+	"src/bosses/boss.cpp"
+	"src/constants.cpp"
+	"src/bosses/gillwing.cpp"
+	"src/danmaku.cpp"
+	"src/services.cpp"
+	"src/resource/shaders.cpp"
+	"src/player.cpp"
 )
-target_compile_features("${PROJECT_NAME}" PUBLIC cxx_std_20)
+target_compile_features("${PROJECT_NAME}" PUBLIC cxx_std_23)
 
 set_target_properties(
 	"${PROJECT_NAME}" PROPERTIES

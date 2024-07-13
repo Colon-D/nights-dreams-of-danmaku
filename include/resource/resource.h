@@ -13,7 +13,7 @@ public:
 		for (
 			const auto path :
 			std::filesystem::recursive_directory_iterator("res")
-			) {
+		) {
 			if (path.path().extension() != ext) {
 				continue;
 			}

@@ -1,7 +1,7 @@
 #include "math_utils.h"
 
 float mag(const sf::Vector2f& vec) {
-	return std::sqrt(vec.x * vec.x + vec.y * vec.y);
+	return std::hypot(vec.x, vec.y);
 }
 
 [[nodiscard]]

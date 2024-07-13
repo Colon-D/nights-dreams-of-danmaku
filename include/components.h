@@ -7,35 +7,17 @@
 
 struct velocity : sf::Vector2f {
 	velocity(const sf::Vector2f& vel = {}) : sf::Vector2f{ vel } {}
-	using sf::Vector2f::Vector2f;
-	using sf::Vector2f::operator=;
 	operator sf::Vector2f() const {
 		return *this;
 	}
 };
 
-struct player {
-	input input{};
-	int ideya{ 5 };
-	float last_hit{};
-	// store 2.5s of paraloop points
-	std::vector<sf::Vector2f> paraloop_points{};
-	constexpr static std::size_t max_paraloop_points{
-		static_cast<std::size_t>(fixed_framerate * 2.5)
-	};
+struct acceleration {
+	sf::Vector2f val{};
 };
 
 struct facing {
 	angle angle{};
-};
-
-struct gillwing {
-	float timer{ 0.f };
-	bool heading_right{ true };
-};
-
-// erased offscreen
-struct danmaku {
 };
 
 // hurts the player
@@ -74,4 +56,30 @@ struct sprite {
 	sf::Color color{ sf::Color::White };
 
 	sf::Sprite get_sprite(const transform& transform) const;
+};
+
+class position_history {
+public:
+	position_history(const std::size_t max_size);
+
+	void push(const sf::Vector2f& pos);
+
+	sf::Vector2f pop();
+
+	sf::Vector2f& operator[](std::size_t index);
+
+	const sf::Vector2f& operator[](std::size_t index) const;
+
+	std::size_t size() const;
+
+	sf::Vector2f front() const;
+
+	sf::Vector2f back() const;
+
+	void clear();
+private:
+	std::size_t begin{};
+	std::size_t length{};
+
+	std::vector<sf::Vector2f> history{};
 };
